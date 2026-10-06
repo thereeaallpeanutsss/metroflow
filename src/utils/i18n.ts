@@ -205,6 +205,10 @@ export interface Translations {
   networkStatus: string;
   allLinesOperating: string;
   disruptionsActiveNotice: string;
+  tabBarStyleSetting: string;
+  tabBarStyleDesc: string;
+  tabBarStyleIOS26: string;
+  tabBarStyleClassic: string;
 }
 
 export const translations: Record<Language, Translations> = {
@@ -413,6 +417,10 @@ export const translations: Record<Language, Translations> = {
     networkStatus: 'Betriebslage',
     allLinesOperating: 'Alle U-Bahn- & IC-Linien verkehren planmäßig',
     disruptionsActiveNotice: 'Streckenstörung(en) im Schienennetz gemeldet',
+    tabBarStyleSetting: 'Menüleisten-Design',
+    tabBarStyleDesc: 'Wähle zwischen dem schwebenden iOS 26 Glas-Dock und der klassischen Leiste.',
+    tabBarStyleIOS26: 'iOS 26 Glas-Dock',
+    tabBarStyleClassic: 'Klassische Leiste',
   },
   en: {
     appName: 'MetroFlow',
@@ -619,5 +627,9 @@ export const translations: Record<Language, Translations> = {
     networkStatus: 'Operational Status',
     allLinesOperating: 'All Metro & IC lines running normally',
     disruptionsActiveNotice: 'Active disruption(s) on the rail network',
+    tabBarStyleSetting: 'Navigation Bar Style',
+    tabBarStyleDesc: 'Choose between the floating iOS 26 glass dock and the classic bar.',
+    tabBarStyleIOS26: 'iOS 26 Glass Dock',
+    tabBarStyleClassic: 'Classic Bar',
   },
 };

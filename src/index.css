@@ -26,8 +26,7 @@
     font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Icons", "Helvetica Neue", Helvetica, Arial, sans-serif;
     min-height: 100vh;
     min-height: 100dvh;
-    padding-top: env(safe-area-inset-top);
-    padding-bottom: env(safe-area-inset-bottom);
+    overscroll-behavior-y: none;
     transition: background-color 0.2s ease, color 0.2s ease;
   }
 }

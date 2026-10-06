@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Station, LineId, RouteOption, Disruption } from '../types/metro';
 import { STATIONS, METRO_LINES } from '../data/metroData';
@@ -88,8 +88,25 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
   onNavigateToPlanner,
 }) => {
   const t = translations[language];
-  const [zoom, setZoom] = useState(1);
-  const [pan, setPan] = useState({ x: 0, y: 0 });
+
+  // Detect mobile width to provide an optimized, centered initial view
+  const [windowWidth, setWindowWidth] = useState(() =>
+    typeof window !== 'undefined' ? window.innerWidth : 1024
+  );
+
+  useEffect(() => {
+    const handleResize = () => setWindowWidth(window.innerWidth);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  const isMobile = windowWidth < 768;
+
+  // Optimized mobile defaults: 1.22 zoom and slight offset to center Central Station & core lines
+  const [zoom, setZoom] = useState(() => (typeof window !== 'undefined' && window.innerWidth < 768 ? 1.22 : 1));
+  const [pan, setPan] = useState(() =>
+    typeof window !== 'undefined' && window.innerWidth < 768 ? { x: -20, y: 15 } : { x: 0, y: 0 }
+  );
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [hoveredStationId, setHoveredStationId] = useState<string | null>(null);
@@ -131,8 +148,9 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
   };
   const handleReset = () => {
     haptic.medium();
-    setZoom(1);
-    setPan({ x: 0, y: 0 });
+    const mobile = typeof window !== 'undefined' && window.innerWidth < 768;
+    setZoom(mobile ? 1.22 : 1);
+    setPan(mobile ? { x: -20, y: 15 } : { x: 0, y: 0 });
     setClickedStationId(null);
     setSelectedDisruption(null);
   };
@@ -263,121 +281,120 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
       />
 
       {/* Floating Map Controls */}
-      <div className="absolute top-4 right-4 z-20 flex flex-col gap-2">
-        {/* Zoom & Reset */}
-        <div className="flex flex-col bg-white/90 dark:bg-slate-900/90 backdrop-blur-md rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xl overflow-hidden p-1">
+      <div className="absolute top-4 right-4 z-20 flex flex-col gap-2.5 items-end">
+        {/* Card 1: Zoom & Reset */}
+        <div className="flex flex-col bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl rounded-2xl border border-slate-200/80 dark:border-slate-800/80 shadow-xl overflow-hidden p-1">
           <motion.button
-            whileHover={{ scale: 1.08 }}
             whileTap={{ scale: 0.9 }}
             onClick={(e) => {
               e.stopPropagation();
               handleZoomIn();
             }}
-            className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 hover:text-black dark:hover:text-white rounded-xl transition"
+            className="w-9 h-9 sm:w-10 sm:h-10 flex items-center justify-center hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 hover:text-black dark:hover:text-white rounded-xl transition"
             title="Zoom In"
           >
             <ZoomIn className="w-4 h-4" />
           </motion.button>
-          <div className="h-[1px] bg-slate-200 dark:bg-slate-800 my-0.5" />
+          <div className="h-[1px] bg-slate-200 dark:bg-slate-800/80 my-0.5" />
           <motion.button
-            whileHover={{ scale: 1.08 }}
             whileTap={{ scale: 0.9 }}
             onClick={(e) => {
               e.stopPropagation();
               handleZoomOut();
             }}
-            className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 hover:text-black dark:hover:text-white rounded-xl transition"
+            className="w-9 h-9 sm:w-10 sm:h-10 flex items-center justify-center hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 hover:text-black dark:hover:text-white rounded-xl transition"
             title="Zoom Out"
           >
             <ZoomOut className="w-4 h-4" />
           </motion.button>
-          <div className="h-[1px] bg-slate-200 dark:bg-slate-800 my-0.5" />
+          <div className="h-[1px] bg-slate-200 dark:bg-slate-800/80 my-0.5" />
           <motion.button
-            whileHover={{ scale: 1.08 }}
             whileTap={{ scale: 0.9 }}
             onClick={(e) => {
               e.stopPropagation();
               handleReset();
             }}
-            className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 hover:text-black dark:hover:text-white rounded-xl transition"
+            className="w-9 h-9 sm:w-10 sm:h-10 flex items-center justify-center hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 hover:text-black dark:hover:text-white rounded-xl transition"
             title={t.resetView}
           >
             <RotateCcw className="w-4 h-4" />
           </motion.button>
         </div>
 
-        {/* Metro Network Layer Toggle Pill */}
-        {onToggleMetroLayer && (
+        {/* Card 2: Layers & Legend (Structured Card to prevent any button overlap) */}
+        <div className="flex flex-col bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl rounded-2xl border border-slate-200/80 dark:border-slate-800/80 shadow-xl overflow-hidden p-1">
+          {/* Metro Network Layer Toggle */}
+          {onToggleMetroLayer && (
+            <motion.button
+              whileTap={{ scale: 0.92 }}
+              onClick={(e) => {
+                e.stopPropagation();
+                haptic.light();
+                onToggleMetroLayer();
+              }}
+              className={`w-9 h-9 sm:w-10 sm:h-10 rounded-xl transition flex items-center justify-center ${
+                showMetroLayer
+                  ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'
+                  : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+              }`}
+              title={showMetroLayer ? t.metroLayerOn : t.metroLayerOff}
+            >
+              <TrainFront className="w-4 h-4" />
+            </motion.button>
+          )}
+
+          <div className="h-[1px] bg-slate-200 dark:bg-slate-800/80 my-0.5" />
+
+          {/* IC Train Layer Toggle */}
           <motion.button
-            whileHover={{ scale: 1.04 }}
             whileTap={{ scale: 0.92 }}
             onClick={(e) => {
               e.stopPropagation();
               haptic.light();
-              onToggleMetroLayer();
+              onToggleICLayer();
             }}
-            className={`p-2.5 rounded-2xl border backdrop-blur-md shadow-xl transition flex items-center justify-center gap-1.5 ${
-              showMetroLayer
-                ? 'bg-blue-600 text-white border-blue-500 shadow-blue-600/30 ring-2 ring-blue-400/40'
-                : 'bg-white/90 dark:bg-slate-900/90 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:text-black dark:hover:text-white'
+            className={`w-9 h-9 sm:w-10 sm:h-10 rounded-xl transition flex items-center justify-center ${
+              showICLayer
+                ? 'bg-rose-600 text-white shadow-md shadow-rose-600/30'
+                : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
             }`}
-            title={showMetroLayer ? t.metroLayerOn : t.metroLayerOff}
+            title={showICLayer ? t.icLayerOn : t.icLayerOff}
           >
-            <TrainFront className="w-4 h-4" />
-            <span className="text-[10px] font-bold hidden sm:inline">U-Bahn</span>
+            <Train className="w-4 h-4" />
           </motion.button>
-        )}
 
-        {/* IC Train Layer Toggle Pill */}
-        <motion.button
-          whileHover={{ scale: 1.04 }}
-          whileTap={{ scale: 0.92 }}
-          onClick={(e) => {
-            e.stopPropagation();
-            haptic.light();
-            onToggleICLayer();
-          }}
-          className={`p-2.5 rounded-2xl border backdrop-blur-md shadow-xl transition flex items-center justify-center gap-1.5 ${
-            showICLayer
-              ? 'bg-rose-600 text-white border-rose-500 shadow-rose-600/30 ring-2 ring-rose-400/40'
-              : 'bg-white/90 dark:bg-slate-900/90 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:text-black dark:hover:text-white'
-          }`}
-          title={showICLayer ? t.icLayerOn : t.icLayerOff}
-        >
-          <Train className="w-4 h-4" />
-          <span className="text-[10px] font-bold hidden sm:inline">IC</span>
-        </motion.button>
+          <div className="h-[1px] bg-slate-200 dark:bg-slate-800/80 my-0.5" />
 
-        {/* Legend Drawer Toggle */}
-        <motion.button
-          whileHover={{ scale: 1.04 }}
-          whileTap={{ scale: 0.92 }}
-          onClick={(e) => {
-            e.stopPropagation();
-            haptic.selection();
-            setShowLegend(!showLegend);
-          }}
-          className={`p-2.5 rounded-2xl border backdrop-blur-md shadow-xl transition flex items-center justify-center ${
-            showLegend
-              ? 'bg-blue-600 border-blue-500 text-white'
-              : 'bg-white/90 dark:bg-slate-900/90 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:text-black dark:hover:text-white'
-          }`}
-          title={t.symbolExplanation}
-        >
-          <Info className="w-4 h-4" />
-        </motion.button>
+          {/* Legend / Info Toggle */}
+          <motion.button
+            whileTap={{ scale: 0.92 }}
+            onClick={(e) => {
+              e.stopPropagation();
+              haptic.selection();
+              setShowLegend(!showLegend);
+            }}
+            className={`w-9 h-9 sm:w-10 sm:h-10 rounded-xl transition flex items-center justify-center ${
+              showLegend
+                ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900 shadow-md'
+                : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+            }`}
+            title={t.symbolExplanation}
+          >
+            <Info className="w-4 h-4" />
+          </motion.button>
+        </div>
       </div>
 
       {/* Map Header Overlay */}
-      <div className="absolute top-4 left-4 z-10 pointer-events-none">
-        <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-md px-3.5 py-2 rounded-2xl border border-slate-200 dark:border-slate-800/80 shadow-md">
-          <div className="text-[10px] tracking-wider uppercase text-blue-600 dark:text-blue-400 font-bold">
+      <div className="absolute top-4 left-4 z-10 pointer-events-none max-w-[calc(100%-6.5rem)]">
+        <div className="bg-white/85 dark:bg-slate-900/85 backdrop-blur-md px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 shadow-md">
+          <div className="text-[9px] sm:text-[10px] tracking-wider uppercase text-blue-600 dark:text-blue-400 font-bold">
             ÄÄPIZRM 044
           </div>
-          <h2 className="text-sm font-bold text-slate-900 dark:text-white tracking-wide">
+          <h2 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white tracking-wide truncate">
             {t.map} {showMetroLayer && showICLayer ? '(U-Bahn + IC)' : showMetroLayer ? '(U-Bahn)' : showICLayer ? '(IC-Züge)' : ''}
           </h2>
-          <div className="text-[9px] text-slate-500 dark:text-slate-400 font-medium">
+          <div className="text-[9px] sm:text-[10px] text-slate-500 dark:text-slate-400 font-medium truncate">
             {activeRoute ? 'Aktive Verbindung hervorgehoben' : 'Gesamtnetz'}
           </div>
         </div>
@@ -445,7 +462,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
 
       {/* Main SVG Vector Canvas */}
       <svg
-        viewBox="0 0 1020 680"
+        viewBox={isMobile ? '230 10 760 640' : '0 0 1020 680'}
         className="w-full h-full transition-transform duration-75 origin-center"
         style={{
           transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,

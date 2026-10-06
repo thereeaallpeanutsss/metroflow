@@ -3,6 +3,7 @@ import { Language, translations } from '../utils/i18n';
 import { SavedJourney } from '../types/metro';
 import { METRO_LINES } from '../data/metroData';
 import { useHaptics, haptic } from '../utils/haptics';
+import { TabBarStyle } from './TabBar';
 import {
   Globe,
   Sun,
@@ -35,6 +36,8 @@ interface OptionsMenuProps {
   onToggleMapRoutePlanning: (enabled: boolean) => void;
   isAdmin: boolean;
   onToggleAdmin: (isAdmin: boolean) => void;
+  tabBarStyle: TabBarStyle;
+  onSetTabBarStyle: (style: TabBarStyle) => void;
 }
 
 export const OptionsMenu: React.FC<OptionsMenuProps> = ({
@@ -49,6 +52,8 @@ export const OptionsMenu: React.FC<OptionsMenuProps> = ({
   onToggleMapRoutePlanning,
   isAdmin,
   onToggleAdmin,
+  tabBarStyle,
+  onSetTabBarStyle,
 }) => {
   const t = translations[language];
   const { enabled: hapticsEnabled, setEnabled: setHapticsEnabled, isSupported: hapticsSupported } = useHaptics();
@@ -183,6 +188,69 @@ export const OptionsMenu: React.FC<OptionsMenuProps> = ({
               <span>{t.darkMode}</span>
             </div>
             {theme === 'dark' && <Check className="w-4 h-4" />}
+          </button>
+        </div>
+      </div>
+
+      {/* Navigation Bar Style Setting (iOS 26 Floating Glass Dock vs. Classic) */}
+      <div className="p-4 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl space-y-3">
+        <div className="space-y-0.5">
+          <div className="flex items-center gap-2 text-sm font-semibold text-slate-800 dark:text-slate-200">
+            <Sparkles className="w-4 h-4 text-sky-500" />
+            <span>{t.tabBarStyleSetting}</span>
+          </div>
+          <p className="text-[11px] text-slate-500 dark:text-slate-400">
+            {t.tabBarStyleDesc}
+          </p>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2 pt-1">
+          {/* iOS 26 Floating Glass Dock */}
+          <button
+            onClick={() => {
+              haptic.selection();
+              onSetTabBarStyle('ios26');
+            }}
+            className={`py-3 px-3.5 rounded-2xl flex items-center justify-between border transition text-xs font-semibold cursor-pointer ${
+              tabBarStyle === 'ios26'
+                ? 'bg-gradient-to-r from-sky-600 to-blue-600 text-white border-sky-400 shadow-md shadow-sky-500/25 ring-2 ring-sky-400/30'
+                : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <div className="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center">
+                <Sparkles className="w-3 h-3 text-white" />
+              </div>
+              <div className="text-left">
+                <div className="font-bold">{t.tabBarStyleIOS26}</div>
+                <div className="text-[9px] opacity-80">Floating Dock</div>
+              </div>
+            </div>
+            {tabBarStyle === 'ios26' && <Check className="w-4 h-4 shrink-0 ml-1" />}
+          </button>
+
+          {/* Classic Edge-to-Edge Navigation Bar */}
+          <button
+            onClick={() => {
+              haptic.selection();
+              onSetTabBarStyle('classic');
+            }}
+            className={`py-3 px-3.5 rounded-2xl flex items-center justify-between border transition text-xs font-semibold cursor-pointer ${
+              tabBarStyle === 'classic'
+                ? 'bg-slate-800 dark:bg-slate-700 text-white border-slate-600 shadow-md shadow-slate-900/30 ring-2 ring-slate-400/30'
+                : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <div className="w-5 h-5 rounded-md bg-white/10 flex items-center justify-center">
+                <div className="w-3.5 h-2 border border-white/70 rounded-[2px]" />
+              </div>
+              <div className="text-left">
+                <div className="font-bold">{t.tabBarStyleClassic}</div>
+                <div className="text-[9px] opacity-80">Edge-to-Edge</div>
+              </div>
+            </div>
+            {tabBarStyle === 'classic' && <Check className="w-4 h-4 shrink-0 ml-1" />}
           </button>
         </div>
       </div>

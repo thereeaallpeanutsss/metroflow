@@ -6,7 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Header } from './components/Header';
-import { TabBar } from './components/TabBar';
+import { TabBar, TabBarStyle } from './components/TabBar';
 import { TripPlanner } from './components/TripPlanner';
 import { InteractiveMap } from './components/InteractiveMap';
 import { LineDirectory } from './components/LineDirectory';
@@ -140,6 +140,23 @@ export default function App() {
 
   const handleToggleTheme = () => {
     setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
+  };
+
+  // Menu bar design style: 'ios26' (default floating glass dock) or 'classic' (edge-to-edge bar)
+  const [tabBarStyle, setTabBarStyle] = useState<TabBarStyle>(() => {
+    try {
+      const saved = localStorage.getItem('metroflow_tab_bar_style');
+      return saved === 'classic' ? 'classic' : 'ios26';
+    } catch {
+      return 'ios26';
+    }
+  });
+
+  const handleSetTabBarStyle = (style: TabBarStyle) => {
+    setTabBarStyle(style);
+    try {
+      localStorage.setItem('metroflow_tab_bar_style', style);
+    } catch {}
   };
 
   // Station route selection: empty by default when opening app (no stations preselected)
@@ -703,7 +720,11 @@ export default function App() {
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 w-full max-w-4xl mx-auto flex flex-col p-4 md:p-6 overflow-x-hidden">
+      <main
+        className={`flex-1 w-full max-w-4xl mx-auto flex flex-col ${
+          activeTab === 'map' ? 'p-0 md:p-6 pb-16 md:pb-6' : 'p-4 md:p-6 pb-24 md:pb-8'
+        } overflow-x-hidden`}
+      >
         <AnimatePresence mode="wait">
           {activeTab === 'home' && (
             <motion.div
@@ -775,7 +796,7 @@ export default function App() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -6 }}
               transition={{ duration: 0.18, ease: 'easeOut' }}
-              className="flex-1 flex flex-col min-h-[540px] rounded-3xl overflow-hidden border border-slate-200 dark:border-slate-800 shadow-2xl relative"
+              className="flex-1 flex flex-col h-[calc(100dvh-7.5rem)] md:min-h-[580px] rounded-none md:rounded-3xl overflow-hidden border-0 md:border border-slate-200 dark:border-slate-800 shadow-none md:shadow-2xl relative"
             >
               <InteractiveMap
                 language={language}
@@ -866,6 +887,8 @@ export default function App() {
                 onToggleMapRoutePlanning={handleToggleMapRoutePlanning}
                 isAdmin={isAdmin}
                 onToggleAdmin={handleToggleAdmin}
+                tabBarStyle={tabBarStyle}
+                onSetTabBarStyle={handleSetTabBarStyle}
               />
             </motion.div>
           )}
@@ -877,6 +900,7 @@ export default function App() {
         language={language}
         activeTab={activeTab}
         onChangeTab={setActiveTab}
+        tabBarStyle={tabBarStyle}
       />
     </div>
   );
