@@ -5,14 +5,22 @@ import {defineConfig} from 'vite';
 import {VitePWA} from 'vite-plugin-pwa';
 
 export default defineConfig(() => {
+  // Support custom base, GitHub Actions auto-detection, or relative base
+  const ghRepo = process.env.GITHUB_REPOSITORY;
+  const repoName = ghRepo ? `/${ghRepo.split('/')[1]}/` : undefined;
+  const basePath = process.env.VITE_BASE || process.env.BASE_URL || repoName || './';
+
   return {
-    base: './',
+    base: basePath,
     plugins: [
       react(),
       tailwindcss(),
       VitePWA({
         registerType: 'autoUpdate',
         includeAssets: ['icon.svg'],
+        workbox: {
+          navigateFallback: null,
+        },
         manifest: {
           name: 'MetroFlow - ÄÄPIZRM Metro Router',
           short_name: 'MetroFlow',
@@ -38,7 +46,7 @@ export default defineConfig(() => {
     ],
     resolve: {
       alias: {
-        '@': path.resolve(__dirname, '.'),
+        '@': path.resolve(import.meta.dirname || __dirname, '.'),
       },
     },
     server: {

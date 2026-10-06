@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>MetroFlow - ÄÄPIZRM Metro Router</title>
+    <script>
+      // Single Page Application redirect for GitHub Pages
+      // Ensures reloading subpaths doesn't break
+      var path = window.location.pathname;
+      var repoSegments = path.split('/').filter(Boolean);
+      var target = repoSegments.length > 0 ? '/' + repoSegments[0] + '/' : '/';
+      window.location.replace(target);
+    </script>
+  </head>
+  <body style="background: #0f172a; color: #94a3b8; font-family: sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0;">
+    <p>Loading MetroFlow...</p>
+  </body>
+</html>
