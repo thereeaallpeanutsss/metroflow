@@ -6,6 +6,7 @@ import {VitePWA} from 'vite-plugin-pwa';
 
 export default defineConfig(() => {
   return {
+    base: './',
     plugins: [
       react(),
       tailwindcss(),
@@ -13,18 +14,17 @@ export default defineConfig(() => {
         registerType: 'autoUpdate',
         includeAssets: ['icon.svg'],
         manifest: {
-          id: '/',
           name: 'MetroFlow - ÄÄPIZRM Metro Router',
           short_name: 'MetroFlow',
           description: 'Modern iOS-optimized metro trip planner and interactive transit navigator for the ÄÄPIZRM 044 U-Bahn system.',
           theme_color: '#0f172a',
           background_color: '#0f172a',
           display: 'standalone',
-          start_url: '/',
-          scope: '/',
+          start_url: './',
+          scope: './',
           icons: [
             {
-              src: '/icon.svg',
+              src: 'icon.svg',
               sizes: '192x192 512x512',
               type: 'image/svg+xml',
               purpose: 'any',
@@ -32,8 +32,7 @@ export default defineConfig(() => {
           ],
         },
         devOptions: {
-          enabled: true,
-          type: 'module',
+          enabled: false,
         },
       }),
     ],
