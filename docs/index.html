@@ -14,15 +14,7 @@
           return;
         }
 
-        // If GitHub Pages is deployed from root (/), automatically redirect to the compiled /docs/ bundle
-        if (
-          window.location.hostname.includes('github.io') &&
-          !window.location.pathname.includes('/docs')
-        ) {
-          var basePath = window.location.pathname.replace(/\/+$/, '');
-          window.location.replace(basePath + '/docs/' + window.location.search + window.location.hash);
-          return;
-        }
+        
 
         try {
           var saved = localStorage.getItem('metroflow_theme');
@@ -64,10 +56,11 @@
     <meta name="apple-mobile-web-app-title" content="MetroFlow" />
     <link rel="icon" type="image/svg+xml" href="./icon.svg" />
     <link rel="apple-touch-icon" href="./icon.svg" />
-  </head>
+    <script type="module" crossorigin src="./assets/index-Cdka3OsG.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-CQzyGKs8.css">
+  <link rel="manifest" href="./manifest.webmanifest"></head>
   <body>
     <div id="root"></div>
-    <script type="module" src="./src/main.tsx"></script>
   </body>
 </html>
 
