@@ -1,0 +1,6 @@
+{
+  "name": "MetroFlow - ÄÄPIZRM Metro Router",
+  "description": "Modern iOS-optimized metro trip planner and interactive transit navigator for the ÄÄPIZRM 044 U-Bahn system.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

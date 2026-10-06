@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <script>
+      (function() {
+        try {
+          var saved = localStorage.getItem('metroflow_theme');
+          if (saved === 'light') {
+            document.documentElement.classList.remove('dark');
+          } else {
+            document.documentElement.classList.add('dark');
+          }
+        } catch(e) {}
+
+        // Suppress Vite HMR WebSocket connection warnings in sandboxed iframe preview
+        var origWarn = console.warn;
+        var origError = console.error;
+        console.warn = function() {
+          if (arguments.length > 0 && typeof arguments[0] === 'string' && (arguments[0].indexOf('[vite]') !== -1 || arguments[0].indexOf('WebSocket') !== -1)) {
+            return;
+          }
+          return origWarn.apply(console, arguments);
+        };
+        console.error = function() {
+          if (arguments.length > 0 && typeof arguments[0] === 'string' && (arguments[0].indexOf('[vite]') !== -1 || arguments[0].indexOf('WebSocket') !== -1)) {
+            return;
+          }
+          return origError.apply(console, arguments);
+        };
+      })();
+    </script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <title>MetroFlow - ÄÄPIZRM Metro Router</title>
+    <meta name="description" content="Modern iOS-optimized metro trip planner and interactive transit navigator for the ÄÄPIZRM 044 U-Bahn system." />
+    <meta property="og:title" content="MetroFlow - ÄÄPIZRM Metro Router" />
+    <meta property="og:description" content="Modern iOS-optimized metro trip planner and interactive transit navigator for the ÄÄPIZRM 044 U-Bahn system." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="theme-color" content="#0f172a" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="MetroFlow" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <link rel="apple-touch-icon" href="/icon.svg" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+
