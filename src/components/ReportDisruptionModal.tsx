@@ -1,5 +1,5 @@
-import React, { useState, useMemo } from 'react';
-import { LineId, DisruptionType } from '../types/metro';
+import React, { useState, useMemo, useEffect } from 'react';
+import { LineId, DisruptionType, Disruption } from '../types/metro';
 import { METRO_LINES, STATIONS } from '../data/metroData';
 import { Language, translations } from '../utils/i18n';
 import { NewDisruptionPayload } from '../services/disruptionsService';
@@ -17,6 +17,9 @@ import {
   Sparkles,
   MapPin,
   CheckCircle2,
+  Pencil,
+  ShieldCheck,
+  Save,
 } from 'lucide-react';
 
 interface ReportDisruptionModalProps {
@@ -25,6 +28,8 @@ interface ReportDisruptionModalProps {
   onClose: () => void;
   onSubmit: (payload: NewDisruptionPayload) => Promise<void>;
   preselectedLineId?: LineId;
+  disruptionToEdit?: Disruption | null;
+  onEditSubmit?: (id: string, updates: Partial<Disruption>) => Promise<void>;
 }
 
 export const ReportDisruptionModal: React.FC<ReportDisruptionModalProps> = ({
@@ -33,6 +38,8 @@ export const ReportDisruptionModal: React.FC<ReportDisruptionModalProps> = ({
   onClose,
   onSubmit,
   preselectedLineId = 'U-Grün',
+  disruptionToEdit = null,
+  onEditSubmit,
 }) => {
   const t = translations[language];
 
@@ -45,15 +52,43 @@ export const ReportDisruptionModal: React.FC<ReportDisruptionModalProps> = ({
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  // Sync state when opening or when disruptionToEdit changes
+  useEffect(() => {
+    if (disruptionToEdit) {
+      setSelectedLineId(disruptionToEdit.lineId);
+      setSelectedType(disruptionToEdit.type);
+      setFromStationId(disruptionToEdit.fromStationId);
+      setToStationId(disruptionToEdit.toStationId);
+      setNotes(disruptionToEdit.description || '');
+      setReporterName(disruptionToEdit.reportedBy || '');
+      setErrorMessage(null);
+    } else {
+      setSelectedLineId(preselectedLineId);
+      setSelectedType('missing_tracks');
+      const line = METRO_LINES[preselectedLineId];
+      if (line && line.stations.length >= 2) {
+        setFromStationId(line.stations[0]);
+        setToStationId(line.stations[1]);
+      }
+      setNotes('');
+      setReporterName('');
+      setErrorMessage(null);
+    }
+  }, [disruptionToEdit, preselectedLineId, isOpen]);
+
   const selectedLine = METRO_LINES[selectedLineId];
 
-  // Set default from/to stations when line changes
-  React.useEffect(() => {
-    if (selectedLine && selectedLine.stations.length >= 2) {
-      setFromStationId(selectedLine.stations[0]);
-      setToStationId(selectedLine.stations[1]);
+  // Set default from/to stations when line changes (only in create mode)
+  useEffect(() => {
+    if (!disruptionToEdit && selectedLine && selectedLine.stations.length >= 2) {
+      if (!selectedLine.stations.includes(fromStationId)) {
+        setFromStationId(selectedLine.stations[0]);
+      }
+      if (!selectedLine.stations.includes(toStationId)) {
+        setToStationId(selectedLine.stations[1]);
+      }
     }
-  }, [selectedLineId]);
+  }, [selectedLineId, disruptionToEdit]);
 
   // Compute the affected stations between fromStationId and toStationId on the selected line
   const affectedStations = useMemo(() => {
@@ -150,16 +185,29 @@ export const ReportDisruptionModal: React.FC<ReportDisruptionModalProps> = ({
     setErrorMessage(null);
 
     try {
-      await onSubmit({
-        lineId: selectedLineId,
-        type: selectedType,
-        title: generatedTitle,
-        description: notes.trim(),
-        fromStationId,
-        toStationId,
-        affectedStations,
-        reportedBy: reporterName.trim() || undefined,
-      });
+      if (disruptionToEdit && onEditSubmit) {
+        await onEditSubmit(disruptionToEdit.id, {
+          lineId: selectedLineId,
+          type: selectedType,
+          title: generatedTitle,
+          description: notes.trim(),
+          fromStationId,
+          toStationId,
+          affectedStations,
+          reportedBy: reporterName.trim() || undefined,
+        });
+      } else {
+        await onSubmit({
+          lineId: selectedLineId,
+          type: selectedType,
+          title: generatedTitle,
+          description: notes.trim(),
+          fromStationId,
+          toStationId,
+          affectedStations,
+          reportedBy: reporterName.trim() || undefined,
+        });
+      }
       haptic.success();
       onClose();
     } catch (err) {
@@ -176,15 +224,35 @@ export const ReportDisruptionModal: React.FC<ReportDisruptionModalProps> = ({
         {/* Modal Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/70">
           <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-2xl bg-amber-100 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400">
-              <AlertTriangle className="w-5 h-5" />
+            <div
+              className={`p-2 rounded-2xl ${
+                disruptionToEdit
+                  ? 'bg-blue-100 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400'
+                  : 'bg-amber-100 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400'
+              }`}
+            >
+              {disruptionToEdit ? (
+                <Pencil className="w-5 h-5" />
+              ) : (
+                <AlertTriangle className="w-5 h-5" />
+              )}
             </div>
             <div>
-              <h2 className="text-base font-bold text-slate-900 dark:text-white leading-tight">
-                {t.reportDisruptionTitle}
-              </h2>
+              <div className="flex items-center gap-2">
+                <h2 className="text-base font-bold text-slate-900 dark:text-white leading-tight">
+                  {disruptionToEdit ? t.editDisruption : t.reportDisruptionTitle}
+                </h2>
+                {disruptionToEdit && (
+                  <span className="text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded-md bg-blue-100 dark:bg-blue-950 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800 flex items-center gap-0.5">
+                    <ShieldCheck className="w-3 h-3" />
+                    Admin
+                  </span>
+                )}
+              </div>
               <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                {t.reportDisruptionSubtitle}
+                {disruptionToEdit
+                  ? (language === 'de' ? 'Störungsparameter anpassen & live synchronisieren' : 'Modify disruption parameters & sync live')
+                  : t.reportDisruptionSubtitle}
               </p>
             </div>
           </div>
@@ -377,10 +445,24 @@ export const ReportDisruptionModal: React.FC<ReportDisruptionModalProps> = ({
             <button
               type="submit"
               disabled={isSubmitting}
-              className="w-full py-3 px-4 rounded-2xl bg-amber-500 hover:bg-amber-600 active:scale-98 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-amber-500/25 transition disabled:opacity-50"
+              className={`w-full py-3 px-4 rounded-2xl active:scale-98 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg transition disabled:opacity-50 ${
+                disruptionToEdit
+                  ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-500/25'
+                  : 'bg-amber-500 hover:bg-amber-600 shadow-amber-500/25'
+              }`}
             >
-              <Send className="w-4 h-4" />
-              <span>{isSubmitting ? '...' : t.submitReport}</span>
+              {disruptionToEdit ? (
+                <Save className="w-4 h-4" />
+              ) : (
+                <Send className="w-4 h-4" />
+              )}
+              <span>
+                {isSubmitting
+                  ? '...'
+                  : disruptionToEdit
+                  ? t.saveChanges
+                  : t.submitReport}
+              </span>
             </button>
           </div>
         </form>

@@ -20,6 +20,7 @@ import {
   fetchDisruptions,
   reportDisruption,
   confirmDisruption,
+  updateDisruption,
   deleteDisruption,
   getUserConfirmedIds,
   getUserResolvedIds,
@@ -37,6 +38,7 @@ import {
 } from './services/recentRoutesService';
 import { HomePage } from './components/HomePage';
 import { StartupDisruptionModal } from './components/StartupDisruptionModal';
+import { ReportDisruptionModal } from './components/ReportDisruptionModal';
 import { AppTab } from './components/TabBar';
 import { Article } from './types/article';
 import {
@@ -705,6 +707,32 @@ export default function App() {
     }
   };
 
+  // Admin Disruption Management (Edit & Delete across all devices)
+  const [editingDisruption, setEditingDisruption] = useState<Disruption | null>(null);
+  const [isDisruptionModalOpen, setIsDisruptionModalOpen] = useState<boolean>(false);
+
+  const handleOpenEditDisruption = (disruption: Disruption) => {
+    haptic.medium();
+    setEditingDisruption(disruption);
+    setIsDisruptionModalOpen(true);
+  };
+
+  const handleSaveEditDisruption = async (id: string, updates: Partial<Disruption>) => {
+    haptic.success();
+    const updated = await updateDisruption(id, updates);
+    setDisruptions((prev) => prev.map((d) => (d.id === id ? updated : d)));
+    setEditingDisruption(null);
+    setIsDisruptionModalOpen(false);
+    showToast(t.disruptionUpdated);
+  };
+
+  const handleDeleteDisruption = async (id: string) => {
+    haptic.medium();
+    await deleteDisruption(id);
+    setDisruptions((prev) => prev.filter((d) => d.id !== id));
+    showToast(t.disruptionDeleted);
+  };
+
   // Save planned journey
   const handleSaveJourney = () => {
     if (!activeRoute || !originId || !destinationId) return;
@@ -947,6 +975,9 @@ export default function App() {
                 onReportResolved={handleReportResolved}
                 routePlanningEnabled={mapRoutePlanningEnabled}
                 onNavigateToPlanner={handleNavigateToPlanner}
+                isAdmin={isAdmin}
+                onEditDisruption={handleOpenEditDisruption}
+                onDeleteDisruption={handleDeleteDisruption}
               />
             </motion.div>
           )}
@@ -968,6 +999,9 @@ export default function App() {
                 onConfirmDisruption={handleConfirmDisruption}
                 onReportResolved={handleReportResolved}
                 onReportDisruption={handleReportDisruption}
+                isAdmin={isAdmin}
+                onEditDisruption={handleOpenEditDisruption}
+                onDeleteDisruption={handleDeleteDisruption}
                 onSelectStation={() => {
                   setActiveTab('map');
                 }}
@@ -1025,6 +1059,19 @@ export default function App() {
         onNavigateToLines={handleNavigateFromStartupToLines}
         startupOverviewEnabled={startupOverviewEnabled}
         onToggleStartupOverview={handleToggleStartupOverview}
+      />
+
+      {/* Admin Disruption Edit / Create Modal */}
+      <ReportDisruptionModal
+        language={language}
+        isOpen={isDisruptionModalOpen}
+        onClose={() => {
+          setIsDisruptionModalOpen(false);
+          setEditingDisruption(null);
+        }}
+        onSubmit={handleReportDisruption}
+        disruptionToEdit={editingDisruption}
+        onEditSubmit={handleSaveEditDisruption}
       />
 
       {/* Bottom iOS Navigation Bar */}

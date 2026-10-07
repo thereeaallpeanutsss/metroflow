@@ -209,7 +209,32 @@ app.post('/api/disruptions/:id/resolve', (req, res) => {
   }
 });
 
-// 5. Resolve / clear a disruption
+// 5. Update an existing disruption (admin)
+app.put('/api/disruptions/:id', (req, res) => {
+  const { id } = req.params;
+  const updates = req.body;
+  disruptionsCache = loadDisruptions();
+  const idx = disruptionsCache.findIndex((d) => d.id === id);
+
+  if (idx === -1) {
+    res.status(404).json({ success: false, error: 'Disruption not found' });
+    return;
+  }
+
+  disruptionsCache[idx] = {
+    ...disruptionsCache[idx],
+    ...updates,
+    id, // protect ID
+  };
+  saveDisruptions(disruptionsCache);
+
+  res.json({
+    success: true,
+    disruption: disruptionsCache[idx],
+  });
+});
+
+// 6. Resolve / clear / delete a disruption
 app.delete('/api/disruptions/:id', (req, res) => {
   const { id } = req.params;
   disruptionsCache = loadDisruptions();

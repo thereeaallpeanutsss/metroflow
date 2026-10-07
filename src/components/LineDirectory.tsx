@@ -25,6 +25,8 @@ import {
   Ban,
   User,
   ShieldCheck,
+  Pencil,
+  Trash2,
 } from 'lucide-react';
 
 interface LineDirectoryProps {
@@ -38,6 +40,9 @@ interface LineDirectoryProps {
   onSelectStation: (stationId: string) => void;
   onSetOrigin: (stationId: string) => void;
   onSetDestination: (stationId: string) => void;
+  isAdmin?: boolean;
+  onEditDisruption?: (disruption: Disruption) => void;
+  onDeleteDisruption?: (id: string) => Promise<void>;
 }
 
 export const LineDirectory: React.FC<LineDirectoryProps> = ({
@@ -51,6 +56,9 @@ export const LineDirectory: React.FC<LineDirectoryProps> = ({
   onSelectStation,
   onSetOrigin,
   onSetDestination,
+  isAdmin = false,
+  onEditDisruption,
+  onDeleteDisruption,
 }) => {
   const t = translations[language];
 
@@ -305,6 +313,40 @@ export const LineDirectory: React.FC<LineDirectoryProps> = ({
                             ({disrupt.resolvedReports || 0}/10)
                           </span>
                         </button>
+                      )}
+
+                      {/* Admin Management Buttons: Edit & Delete */}
+                      {isAdmin && (
+                        <div className="flex items-center gap-1.5 pl-2 border-l border-amber-200 dark:border-amber-800/60">
+                          {onEditDisruption && (
+                            <button
+                              onClick={() => {
+                                haptic.medium();
+                                onEditDisruption(disrupt);
+                              }}
+                              className="px-2 py-1 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 active:scale-95 text-slate-800 dark:text-slate-200 text-[10px] font-bold flex items-center gap-1 border border-slate-300 dark:border-slate-700 transition"
+                              title={t.editDisruption}
+                            >
+                              <Pencil className="w-3 h-3 text-blue-600 dark:text-blue-400" />
+                              <span>{t.editDisruption}</span>
+                            </button>
+                          )}
+                          {onDeleteDisruption && (
+                            <button
+                              onClick={async () => {
+                                if (window.confirm(t.confirmDeleteDisruption)) {
+                                  haptic.medium();
+                                  await onDeleteDisruption(disrupt.id);
+                                }
+                              }}
+                              className="px-2 py-1 rounded-xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/50 active:scale-95 text-rose-600 dark:text-rose-400 text-[10px] font-bold flex items-center gap-1 border border-rose-200 dark:border-rose-900 transition"
+                              title={t.deleteDisruption}
+                            >
+                              <Trash2 className="w-3 h-3" />
+                              <span>{t.deleteDisruption}</span>
+                            </button>
+                          )}
+                        </div>
                       )}
                     </div>
                   </div>

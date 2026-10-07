@@ -364,20 +364,91 @@ export async function reportDisruptionResolved(
 }
 
 /**
- * Clear or resolve a disruption (e.g. for testing / reset).
+ * Update an existing disruption (admin editing).
+ * Synchronizes to Firestore, REST API, and local cache.
+ */
+export async function updateDisruption(
+  disruptionId: string,
+  updates: Partial<Disruption>
+): Promise<Disruption> {
+  const current = getLocalCachedDisruptions();
+  const existingIndex = current.findIndex((d) => d.id === disruptionId);
+  const existing = existingIndex !== -1 ? current[existingIndex] : null;
+
+  const updated: Disruption = {
+    ...(existing || {
+      id: disruptionId,
+      lineId: 'U-Grün',
+      type: 'missing_tracks',
+      title: 'Disruption',
+      fromStationId: '',
+      toStationId: '',
+      affectedStations: [],
+      timestamp: Date.now(),
+      confirmations: 1,
+      isActive: true,
+    }),
+    ...updates,
+    id: disruptionId,
+  };
+
+  // 1. Update in Firestore
+  try {
+    const firestoreData = sanitizeForFirestore(updates);
+    await updateDoc(doc(db, 'disruptions', disruptionId), firestoreData);
+  } catch (err) {
+    console.warn('Firestore updateDoc failed, trying setDoc merge:', err);
+    try {
+      await setDoc(doc(db, 'disruptions', disruptionId), sanitizeForFirestore(updated), { merge: true });
+    } catch (setErr) {
+      console.warn('Firestore setDoc fallback failed:', setErr);
+    }
+  }
+
+  // 2. Update via REST API
+  try {
+    const apiBase = getApiBaseUrl();
+    await fetch(`${apiBase}/api/disruptions/${encodeURIComponent(disruptionId)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates),
+    });
+  } catch (err) {
+    console.warn('REST API update disruption failed:', err);
+  }
+
+  // 3. Update local cache
+  const nextList = current.map((d) => (d.id === disruptionId ? updated : d));
+  if (!current.some((d) => d.id === disruptionId)) {
+    nextList.unshift(updated);
+  }
+  setLocalCachedDisruptions(nextList);
+  return updated;
+}
+
+/**
+ * Clear or delete a disruption permanently (admin deleting).
+ * Synchronizes to Firestore, REST API, and local cache.
  */
 export async function deleteDisruption(disruptionId: string): Promise<void> {
+  // 1. Delete from Firestore
   try {
     await deleteDoc(doc(db, 'disruptions', disruptionId));
-  } catch {}
+  } catch (err) {
+    console.warn('Firestore delete disruption failed:', err);
+  }
 
+  // 2. Delete from REST API
   try {
     const apiBase = getApiBaseUrl();
     await fetch(`${apiBase}/api/disruptions/${encodeURIComponent(disruptionId)}`, {
       method: 'DELETE',
     });
-  } catch {}
+  } catch (err) {
+    console.warn('REST API delete disruption failed:', err);
+  }
 
+  // 3. Update local cache
   const current = getLocalCachedDisruptions();
   const updated = current.filter((d) => d.id !== disruptionId);
   setLocalCachedDisruptions(updated);
@@ -385,40 +456,23 @@ export async function deleteDisruption(disruptionId: string): Promise<void> {
 
 /**
  * Real-time Firestore synchronization for disruptions across all devices.
+ * Automatically broadcasts updates and deletions to every connected device.
  */
 export function subscribeToDisruptions(callback: (disruptions: Disruption[]) => void): () => void {
   try {
     const unsubscribe = onSnapshot(
       collection(db, 'disruptions'),
       (snap) => {
+        // Authoritative cloud snapshot from Firestore
         const firestoreDisruptions: Disruption[] = snap.docs
           .map((d) => d.data() as Disruption)
-          .filter((d) => d.isActive && (d.resolvedReports || 0) < 10);
-
-        const local = getLocalCachedDisruptions();
-        const map = new Map<string, Disruption>();
-        for (const d of local) {
-          map.set(d.id, d);
-        }
-        for (const fd of firestoreDisruptions) {
-          const existing = map.get(fd.id);
-          if (existing) {
-            map.set(fd.id, {
-              ...fd,
-              confirmations: Math.max(fd.confirmations || 1, existing.confirmations || 1),
-              resolvedReports: Math.max(fd.resolvedReports || 0, existing.resolvedReports || 0),
-            });
-          } else {
-            map.set(fd.id, fd);
-          }
-        }
-
-        const merged = Array.from(map.values())
-          .filter((d) => (d.resolvedReports || 0) < 10)
+          .filter((d) => d.isActive && (d.resolvedReports || 0) < 10)
           .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
 
-        setLocalCachedDisruptions(merged);
-        callback(merged);
+        // When cloud data is received, update local cache and UI
+        // This ensures deletions and edits made on any device reflect immediately everywhere
+        setLocalCachedDisruptions(firestoreDisruptions);
+        callback(firestoreDisruptions);
       },
       (err) => {
         console.warn('Firestore onSnapshot listener error for disruptions:', err);

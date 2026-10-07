@@ -30,6 +30,8 @@ import {
   CheckCircle2,
   ChevronUp,
   ChevronDown,
+  Pencil,
+  Trash2,
 } from 'lucide-react';
 
 interface InteractiveMapProps {
@@ -58,6 +60,9 @@ interface InteractiveMapProps {
   onReportResolved?: (id: string) => Promise<void>;
   routePlanningEnabled?: boolean;
   onNavigateToPlanner?: () => void;
+  isAdmin?: boolean;
+  onEditDisruption?: (disruption: Disruption) => void;
+  onDeleteDisruption?: (disruptionId: string) => Promise<void>;
 }
 
 export const InteractiveMap: React.FC<InteractiveMapProps> = ({
@@ -86,6 +91,9 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
   onReportResolved,
   routePlanningEnabled = true,
   onNavigateToPlanner,
+  isAdmin = false,
+  onEditDisruption,
+  onDeleteDisruption,
 }) => {
   const t = translations[language];
 
@@ -1538,6 +1546,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
       </div>
 
       {/* Disruption Details Sheet on Map */}
+      {/* Positioned comfortably at bottom-22/24 on mobile to sit cleanly ABOVE the floating bottom menu bar */}
       <AnimatePresence>
         {selectedDisruption && (
           <motion.div
@@ -1545,7 +1554,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
             animate={{ y: 0, opacity: 1, scale: 1 }}
             exit={{ y: 40, opacity: 0, scale: 0.96 }}
             transition={{ type: 'spring', stiffness: 420, damping: 32 }}
-            className="absolute bottom-4 left-4 right-4 md:left-auto md:right-4 md:w-96 z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl border-2 border-amber-500/70 dark:border-amber-500/60 rounded-3xl p-4 shadow-2xl space-y-3"
+            className="absolute bottom-22 sm:bottom-24 md:bottom-4 left-3 right-3 md:left-auto md:right-4 md:w-96 max-h-[calc(100%-6.5rem)] overflow-y-auto z-45 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl border-2 border-amber-500/70 dark:border-amber-500/60 rounded-3xl p-4 shadow-2xl space-y-3"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-start justify-between">
@@ -1611,6 +1620,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
               </div>
             </div>
 
+            {/* Public Community Actions */}
             <div className="flex items-center gap-2 pt-1">
               {onConfirmDisruption && (
                 <button
@@ -1654,6 +1664,48 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                 </button>
               )}
             </div>
+
+            {/* Admin Management Controls: Edit & Delete Disruption */}
+            {isAdmin && (
+              <div className="pt-2 border-t border-amber-200/80 dark:border-amber-800/60 flex items-center justify-between gap-2">
+                <span className="text-[10px] font-extrabold uppercase tracking-wider text-rose-600 dark:text-rose-400 flex items-center gap-1">
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  <span>Admin</span>
+                </span>
+                <div className="flex items-center gap-2">
+                  {onEditDisruption && (
+                    <button
+                      onClick={() => {
+                        haptic.medium();
+                        const target = selectedDisruption;
+                        setSelectedDisruption(null);
+                        onEditDisruption(target);
+                      }}
+                      className="py-1.5 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 active:scale-95 text-slate-800 dark:text-slate-200 font-bold text-[11px] flex items-center gap-1.5 border border-slate-300 dark:border-slate-700 shadow-xs transition"
+                    >
+                      <Pencil className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                      <span>{t.editDisruption}</span>
+                    </button>
+                  )}
+                  {onDeleteDisruption && (
+                    <button
+                      onClick={async () => {
+                        if (window.confirm(t.confirmDeleteDisruption)) {
+                          haptic.medium();
+                          const id = selectedDisruption.id;
+                          setSelectedDisruption(null);
+                          await onDeleteDisruption(id);
+                        }
+                      }}
+                      className="py-1.5 px-3 rounded-xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/50 active:scale-95 text-rose-600 dark:text-rose-400 font-bold text-[11px] flex items-center gap-1.5 border border-rose-200 dark:border-rose-900 shadow-xs transition"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>{t.deleteDisruption}</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
@@ -1666,7 +1718,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
             animate={{ y: 0, opacity: 1, scale: 1 }}
             exit={{ y: 40, opacity: 0, scale: 0.96 }}
             transition={{ type: 'spring', stiffness: 420, damping: 32 }}
-            className="absolute bottom-4 left-4 right-4 md:left-auto md:right-4 md:w-84 z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl border border-slate-200 dark:border-slate-700/80 rounded-3xl p-4 shadow-2xl"
+            className="absolute bottom-22 sm:bottom-24 md:bottom-4 left-3 right-3 md:left-auto md:right-4 md:w-84 max-h-[calc(100%-6.5rem)] overflow-y-auto z-45 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl border border-slate-200 dark:border-slate-700/80 rounded-3xl p-4 shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-start justify-between">

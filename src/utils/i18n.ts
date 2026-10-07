@@ -128,6 +128,11 @@ export interface Translations {
   installIos: string;
   offlineMode: string;
   close: string;
+  editDisruption: string;
+  deleteDisruption: string;
+  confirmDeleteDisruption: string;
+  disruptionUpdated: string;
+  disruptionDeleted: string;
   recentRoutes: string;
   recentRoutesDesc: string;
   lastEntry: string;
@@ -348,6 +353,11 @@ export const translations: Record<Language, Translations> = {
     installIos: 'iOS Web App',
     offlineMode: 'Offline Modus — Lokaler Fahrplan aktiv',
     close: 'Schließen',
+    editDisruption: 'Störung bearbeiten',
+    deleteDisruption: 'Störung löschen',
+    confirmDeleteDisruption: 'Möchtest du diese Störung wirklich unwiderruflich löschen?',
+    disruptionUpdated: 'Störung erfolgreich aktualisiert',
+    disruptionDeleted: 'Störung erfolgreich gelöscht',
     recentRoutes: 'Kürzliche Routen',
     recentRoutesDesc: 'Schnellzugriff auf deine letzten 3 gesuchten Routen',
     lastEntry: 'Letzter Eintrag',
@@ -566,6 +576,11 @@ export const translations: Record<Language, Translations> = {
     installIos: 'iOS Web App',
     offlineMode: 'Offline Mode — Local timetable active',
     close: 'Close',
+    editDisruption: 'Edit Disruption',
+    deleteDisruption: 'Delete Disruption',
+    confirmDeleteDisruption: 'Are you sure you want to permanently delete this disruption?',
+    disruptionUpdated: 'Disruption successfully updated',
+    disruptionDeleted: 'Disruption successfully deleted',
     recentRoutes: 'Recent Routes',
     recentRoutesDesc: 'Quick access to your last 3 planned routes',
     lastEntry: 'Last Entry',

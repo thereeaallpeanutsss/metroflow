@@ -243,7 +243,16 @@ export const TabBar: React.FC<TabBarProps> = ({
   // ----------------------------------------------------
   if (tabBarStyle === 'classic') {
     return (
-      <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white/85 dark:bg-slate-950/85 backdrop-blur-2xl border-t border-slate-200 dark:border-slate-800/80 pb-[max(env(safe-area-inset-bottom),8px)] pt-2 shadow-2xl transition-colors">
+      <nav
+        style={{
+          position: 'fixed',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          zIndex: 50,
+        }}
+        className="fixed bottom-0 left-0 right-0 z-50 bg-white/85 dark:bg-slate-950/85 backdrop-blur-2xl border-t border-slate-200 dark:border-slate-800/80 pb-[max(env(safe-area-inset-bottom),8px)] pt-2 shadow-2xl transition-colors"
+      >
         <div className="max-w-md mx-auto px-4 flex items-center justify-around relative">
           {tabs.map((tab) => {
             const Icon = tab.icon;
@@ -295,7 +304,16 @@ export const TabBar: React.FC<TabBarProps> = ({
   const isLifted = isDragging || isLiftedTransit;
 
   return (
-    <nav className="fixed bottom-[max(env(safe-area-inset-bottom),0.85rem)] left-1/2 -translate-x-1/2 z-40 w-auto max-w-[96vw] sm:max-w-md pointer-events-auto select-none">
+    <nav
+      style={{
+        position: 'fixed',
+        bottom: 'max(env(safe-area-inset-bottom, 0px), 0.85rem)',
+        left: '50%',
+        transform: 'translateX(-50%)',
+        zIndex: 50,
+      }}
+      className="fixed bottom-3 sm:bottom-4 left-1/2 -translate-x-1/2 z-50 w-auto max-w-[96vw] sm:max-w-md pointer-events-auto select-none"
+    >
       {/* Outer Floating Dock Track */}
       <div
         ref={dockRef}
