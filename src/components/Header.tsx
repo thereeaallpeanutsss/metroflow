@@ -19,7 +19,7 @@ export const Header: React.FC<HeaderProps> = ({ language, theme, onToggleTheme }
   const isOnline = useOnlineStatus();
 
   return (
-    <header className="sticky top-0 z-40 w-full bg-white/80 dark:bg-slate-950/80 backdrop-blur-xl border-b border-slate-200 dark:border-slate-800/80 pt-[env(safe-area-inset-top)] transition-colors">
+    <header className="fixed top-0 left-0 right-0 z-40 w-full bg-white/85 dark:bg-slate-950/85 backdrop-blur-xl border-b border-slate-200 dark:border-slate-800/80 pt-[env(safe-area-inset-top)] transition-colors shadow-xs">
       <div className="max-w-4xl mx-auto px-4 h-14 flex items-center justify-between">
         {/* Brand */}
         <div className="flex items-center gap-2.5">

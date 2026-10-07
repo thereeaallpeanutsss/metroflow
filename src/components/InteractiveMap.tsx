@@ -102,11 +102,9 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
 
   const isMobile = windowWidth < 768;
 
-  // Optimized mobile defaults: 1.22 zoom and slight offset to center Central Station & core lines
-  const [zoom, setZoom] = useState(() => (typeof window !== 'undefined' && window.innerWidth < 768 ? 1.22 : 1));
-  const [pan, setPan] = useState(() =>
-    typeof window !== 'undefined' && window.innerWidth < 768 ? { x: -20, y: 15 } : { x: 0, y: 0 }
-  );
+  // Optimized mobile defaults: cleanly center the network and use screen space efficiently
+  const [zoom, setZoom] = useState(() => (typeof window !== 'undefined' && window.innerWidth < 768 ? 1.05 : 1));
+  const [pan, setPan] = useState(() => ({ x: 0, y: 0 }));
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [hoveredStationId, setHoveredStationId] = useState<string | null>(null);
@@ -134,23 +132,72 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
 
   const containerRef = useRef<HTMLDivElement>(null);
 
+  // Boundary constraints so user can never drag or pinch far away from the contents of the map
+  const clampPan = (px: number, py: number, currentZoom: number) => {
+    const container = containerRef.current;
+    const w = container?.clientWidth || windowWidth;
+    const h = container?.clientHeight || 600;
+
+    // Keep at least a generous portion of the network within viewport
+    const maxPanX = Math.max(50, (w * currentZoom - w) / 2 + w * 0.22);
+    const maxPanY = Math.max(50, (h * currentZoom - h) / 2 + h * 0.22);
+
+    return {
+      x: Math.min(Math.max(px, -maxPanX), maxPanX),
+      y: Math.min(Math.max(py, -maxPanY), maxPanY),
+    };
+  };
+
+  // Zoom centered on the center of what is on your screen (or pointer focal point)
+  const zoomToPoint = (
+    nextZoomOrFn: number | ((prev: number) => number),
+    focalPoint?: { x: number; y: number }
+  ) => {
+    setZoom((prevZoom) => {
+      const nextZoomRaw = typeof nextZoomOrFn === 'function' ? nextZoomOrFn(prevZoom) : nextZoomOrFn;
+      const minZoom = isMobile ? 0.85 : 0.75;
+      const maxZoom = 3.2;
+      const nextZoom = Math.min(Math.max(nextZoomRaw, minZoom), maxZoom);
+
+      if (nextZoom === prevZoom) return prevZoom;
+
+      const zoomRatio = nextZoom / prevZoom;
+
+      setPan((prevPan) => {
+        // focalPoint is relative to container center. When zooming on screen center, focalPoint is (0, 0)!
+        const fx = focalPoint ? focalPoint.x : 0;
+        const fy = focalPoint ? focalPoint.y : 0;
+
+        // Keep the focal point invariant under scaling:
+        const newX = prevPan.x * zoomRatio + fx * (1 - zoomRatio);
+        const newY = prevPan.y * zoomRatio + fy * (1 - zoomRatio);
+
+        return clampPan(newX, newY, nextZoom);
+      });
+
+      return nextZoom;
+    });
+  };
+
   // Touch handling for pinch-to-zoom
   const touchStartDistRef = useRef<number | null>(null);
   const touchStartZoomRef = useRef<number>(1);
+  const touchStartPanRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const touchStartFocalRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
 
   const handleZoomIn = () => {
     haptic.selection();
-    setZoom((prev) => Math.min(prev + 0.25, 3.2));
+    zoomToPoint((prev) => prev + 0.25);
   };
   const handleZoomOut = () => {
     haptic.selection();
-    setZoom((prev) => Math.max(prev - 0.25, 0.5));
+    zoomToPoint((prev) => prev - 0.25);
   };
   const handleReset = () => {
     haptic.medium();
     const mobile = typeof window !== 'undefined' && window.innerWidth < 768;
-    setZoom(mobile ? 1.22 : 1);
-    setPan(mobile ? { x: -20, y: 15 } : { x: 0, y: 0 });
+    setZoom(mobile ? 1.05 : 1);
+    setPan({ x: 0, y: 0 });
     setClickedStationId(null);
     setSelectedDisruption(null);
   };
@@ -158,7 +205,15 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
   const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault();
     const factor = e.deltaY < 0 ? 1.15 : 0.85;
-    setZoom((prev) => Math.min(Math.max(prev * factor, 0.5), 3.5));
+    const container = containerRef.current;
+    if (container) {
+      const rect = container.getBoundingClientRect();
+      const focalX = e.clientX - rect.left - rect.width / 2;
+      const focalY = e.clientY - rect.top - rect.height / 2;
+      zoomToPoint((prev) => prev * factor, { x: focalX, y: focalY });
+    } else {
+      zoomToPoint((prev) => prev * factor);
+    }
   };
 
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -169,10 +224,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
 
   const handleMouseMove = (e: React.MouseEvent) => {
     if (!isDragging) return;
-    setPan({
-      x: e.clientX - dragStart.x,
-      y: e.clientY - dragStart.y,
-    });
+    setPan(clampPan(e.clientX - dragStart.x, e.clientY - dragStart.y, zoom));
   };
 
   const handleMouseUp = () => setIsDragging(false);
@@ -193,23 +245,54 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
       );
       touchStartDistRef.current = dist;
       touchStartZoomRef.current = zoom;
+      touchStartPanRef.current = { ...pan };
+      const container = containerRef.current;
+      if (container) {
+        const rect = container.getBoundingClientRect();
+        const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+        const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+        touchStartFocalRef.current = {
+          x: midX - rect.left - rect.width / 2,
+          y: midY - rect.top - rect.height / 2,
+        };
+      }
     }
   };
 
   const handleTouchMove = (e: React.TouchEvent) => {
     if (e.touches.length === 1 && isDragging) {
-      setPan({
-        x: e.touches[0].clientX - dragStart.x,
-        y: e.touches[0].clientY - dragStart.y,
-      });
+      setPan(clampPan(e.touches[0].clientX - dragStart.x, e.touches[0].clientY - dragStart.y, zoom));
     } else if (e.touches.length === 2 && touchStartDistRef.current !== null) {
       const dist = Math.hypot(
         e.touches[0].clientX - e.touches[1].clientX,
         e.touches[0].clientY - e.touches[1].clientY
       );
       const scale = dist / touchStartDistRef.current;
-      const newZoom = Math.min(Math.max(touchStartZoomRef.current * scale, 0.6), 3.0);
-      setZoom(newZoom);
+      const minZoom = isMobile ? 0.85 : 0.75;
+      const maxZoom = 3.2;
+      const nextZoom = Math.min(Math.max(touchStartZoomRef.current * scale, minZoom), maxZoom);
+
+      const ratio = nextZoom / touchStartZoomRef.current;
+      const focal = touchStartFocalRef.current || { x: 0, y: 0 };
+      const startPan = touchStartPanRef.current;
+
+      const container = containerRef.current;
+      let currFocal = focal;
+      if (container) {
+        const rect = container.getBoundingClientRect();
+        const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+        const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+        currFocal = {
+          x: midX - rect.left - rect.width / 2,
+          y: midY - rect.top - rect.height / 2,
+        };
+      }
+
+      const newPanX = currFocal.x - ratio * (focal.x - startPan.x);
+      const newPanY = currFocal.y - ratio * (focal.y - startPan.y);
+
+      setZoom(nextZoom);
+      setPan(clampPan(newPanX, newPanY, nextZoom));
     }
   };
 
@@ -281,7 +364,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
       />
 
       {/* Floating Map Controls */}
-      <div className="absolute top-4 right-4 z-20 flex flex-col gap-2.5 items-end">
+      <div className="absolute top-3 right-3 sm:top-4 sm:right-4 z-20 flex flex-col gap-1.5 sm:gap-2.5 items-end">
         {/* Card 1: Zoom & Reset */}
         <div className="flex flex-col bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl rounded-2xl border border-slate-200/80 dark:border-slate-800/80 shadow-xl overflow-hidden p-1">
           <motion.button
@@ -290,7 +373,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
               e.stopPropagation();
               handleZoomIn();
             }}
-            className="w-9 h-9 sm:w-10 sm:h-10 flex items-center justify-center hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 hover:text-black dark:hover:text-white rounded-xl transition"
+            className="w-8 h-8 sm:w-10 sm:h-10 flex items-center justify-center hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 hover:text-black dark:hover:text-white rounded-xl transition"
             title="Zoom In"
           >
             <ZoomIn className="w-4 h-4" />
@@ -302,7 +385,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
               e.stopPropagation();
               handleZoomOut();
             }}
-            className="w-9 h-9 sm:w-10 sm:h-10 flex items-center justify-center hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 hover:text-black dark:hover:text-white rounded-xl transition"
+            className="w-8 h-8 sm:w-10 sm:h-10 flex items-center justify-center hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 hover:text-black dark:hover:text-white rounded-xl transition"
             title="Zoom Out"
           >
             <ZoomOut className="w-4 h-4" />
@@ -314,7 +397,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
               e.stopPropagation();
               handleReset();
             }}
-            className="w-9 h-9 sm:w-10 sm:h-10 flex items-center justify-center hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 hover:text-black dark:hover:text-white rounded-xl transition"
+            className="w-8 h-8 sm:w-10 sm:h-10 flex items-center justify-center hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 hover:text-black dark:hover:text-white rounded-xl transition"
             title={t.resetView}
           >
             <RotateCcw className="w-4 h-4" />
@@ -332,7 +415,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                 haptic.light();
                 onToggleMetroLayer();
               }}
-              className={`w-9 h-9 sm:w-10 sm:h-10 rounded-xl transition flex items-center justify-center ${
+              className={`w-8 h-8 sm:w-10 sm:h-10 rounded-xl transition flex items-center justify-center ${
                 showMetroLayer
                   ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'
                   : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
@@ -353,7 +436,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
               haptic.light();
               onToggleICLayer();
             }}
-            className={`w-9 h-9 sm:w-10 sm:h-10 rounded-xl transition flex items-center justify-center ${
+            className={`w-8 h-8 sm:w-10 sm:h-10 rounded-xl transition flex items-center justify-center ${
               showICLayer
                 ? 'bg-rose-600 text-white shadow-md shadow-rose-600/30'
                 : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
@@ -373,7 +456,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
               haptic.selection();
               setShowLegend(!showLegend);
             }}
-            className={`w-9 h-9 sm:w-10 sm:h-10 rounded-xl transition flex items-center justify-center ${
+            className={`w-8 h-8 sm:w-10 sm:h-10 rounded-xl transition flex items-center justify-center ${
               showLegend
                 ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900 shadow-md'
                 : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
@@ -386,7 +469,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
       </div>
 
       {/* Map Header Overlay */}
-      <div className="absolute top-4 left-4 z-10 pointer-events-none max-w-[calc(100%-6.5rem)]">
+      <div className="absolute top-3 left-3 sm:top-4 sm:left-4 z-10 pointer-events-none max-w-[calc(100%-4.2rem)] sm:max-w-[calc(100%-6.5rem)]">
         <div className="bg-white/85 dark:bg-slate-900/85 backdrop-blur-md px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 shadow-md">
           <div className="text-[9px] sm:text-[10px] tracking-wider uppercase text-blue-600 dark:text-blue-400 font-bold">
             ÄÄPIZRM 044
@@ -408,7 +491,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: -5 }}
             transition={{ duration: 0.15 }}
-            className="absolute top-16 right-4 z-30 w-72 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl border border-slate-200 dark:border-slate-700/80 rounded-2xl p-4 shadow-2xl text-xs text-slate-700 dark:text-slate-200"
+            className="absolute top-14 left-3 right-3 sm:left-auto sm:right-4 sm:w-72 z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl border border-slate-200 dark:border-slate-700/80 rounded-2xl p-4 shadow-2xl text-xs text-slate-700 dark:text-slate-200"
             onClick={(e) => e.stopPropagation()}
           >
           <div className="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-slate-800 font-semibold text-slate-900 dark:text-white">
@@ -462,8 +545,9 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
 
       {/* Main SVG Vector Canvas */}
       <svg
-        viewBox={isMobile ? '230 10 760 640' : '0 0 1020 680'}
-        className="w-full h-full transition-transform duration-75 origin-center"
+        viewBox={isMobile ? '280 20 670 610' : '0 0 1020 680'}
+        className="w-full h-full transition-transform duration-75 origin-center select-none"
+        preserveAspectRatio="xMidYMid meet"
         style={{
           transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
         }}
@@ -1248,7 +1332,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
-            className="absolute top-4 right-16 z-20 max-w-xs bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl border border-slate-200 dark:border-slate-800 rounded-2xl p-3 shadow-xl space-y-2"
+            className="absolute top-16 left-3 right-3 sm:top-4 sm:left-auto sm:right-16 sm:max-w-xs z-20 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl border border-slate-200 dark:border-slate-800 rounded-2xl p-3 shadow-xl space-y-2"
           >
             <div className="flex items-center justify-between pb-1.5 border-b border-slate-100 dark:border-slate-800">
               <span className="text-[10px] uppercase font-bold tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1">
@@ -1318,12 +1402,10 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
       </AnimatePresence>
 
       {/* Refined Expandable/Collapsible Line Legend in Bottom Left Corner */}
-      {/* Vertical alignment & layout logic: */}
-      {/* 1. When a bottom sheet is open, dynamically shifts up to bottom-[235px] on mobile to prevent obscuring sheets */}
-      {/* 2. Compact 2-column grid layout (max-w-[195px], max-h-52) so it never reaches x:295 (Carl's Hotel) or y:478 (Jurassic Park) */}
+      {/* Positioned at bottom-20 on mobile to cleanly clear the bottom menu bar without overlapping */}
       <div
-        className={`absolute left-4 z-20 transition-all duration-300 ease-out pointer-events-auto ${
-          hasBottomSheet ? 'bottom-[235px] md:bottom-4' : 'bottom-4'
+        className={`absolute left-3 sm:left-4 z-20 transition-all duration-300 ease-out pointer-events-auto ${
+          hasBottomSheet ? 'hidden md:block md:bottom-4' : 'bottom-20 sm:bottom-4'
         }`}
         onClick={(e) => e.stopPropagation()}
       >

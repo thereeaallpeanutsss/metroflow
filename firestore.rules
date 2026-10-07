@@ -1,0 +1,32 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Connection health check
+    match /test/{docId} {
+      allow read: if true;
+    }
+
+    // Public articles for Metro transit news & tutorials
+    match /articles/{articleId} {
+      allow read: if true;
+      allow create: if request.resource.data.title is string
+                    && request.resource.data.summary is string
+                    && request.resource.data.content is string;
+      allow update: if request.resource.data.title is string
+                    && request.resource.data.content is string;
+      allow delete: if true;
+    }
+
+    // Crowdsourced disruption reports shared across all users
+    match /disruptions/{disruptionId} {
+      allow read: if true;
+      allow create: if request.resource.data.lineId is string
+                    && request.resource.data.title is string
+                    && request.resource.data.fromStationId is string
+                    && request.resource.data.toStationId is string;
+      allow update: if true;
+      allow delete: if true;
+    }
+  }
+}

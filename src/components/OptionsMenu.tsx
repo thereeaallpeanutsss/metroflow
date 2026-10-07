@@ -22,6 +22,9 @@ import {
   ShieldCheck,
   KeyRound,
   Lock,
+  RefreshCw,
+  Bell,
+  Wifi,
 } from 'lucide-react';
 
 interface OptionsMenuProps {
@@ -38,6 +41,10 @@ interface OptionsMenuProps {
   onToggleAdmin: (isAdmin: boolean) => void;
   tabBarStyle: TabBarStyle;
   onSetTabBarStyle: (style: TabBarStyle) => void;
+  startupOverviewEnabled?: boolean;
+  onToggleStartupOverview?: (enabled: boolean) => void;
+  onRefreshData?: () => Promise<void>;
+  isRefreshingData?: boolean;
 }
 
 export const OptionsMenu: React.FC<OptionsMenuProps> = ({
@@ -54,6 +61,10 @@ export const OptionsMenu: React.FC<OptionsMenuProps> = ({
   onToggleAdmin,
   tabBarStyle,
   onSetTabBarStyle,
+  startupOverviewEnabled = true,
+  onToggleStartupOverview,
+  onRefreshData,
+  isRefreshingData = false,
 }) => {
   const t = translations[language];
   const { enabled: hapticsEnabled, setEnabled: setHapticsEnabled, isSupported: hapticsSupported } = useHaptics();
@@ -253,6 +264,74 @@ export const OptionsMenu: React.FC<OptionsMenuProps> = ({
             {tabBarStyle === 'classic' && <Check className="w-4 h-4 shrink-0 ml-1" />}
           </button>
         </div>
+      </div>
+
+      {/* Online Data Update Button & Cross-Device Sync Status */}
+      <div className="p-4 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl space-y-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="space-y-0.5">
+            <div className="flex items-center gap-2 text-sm font-semibold text-slate-800 dark:text-slate-200">
+              <Wifi className="w-4 h-4 text-emerald-500" />
+              <span>{t.syncServerSetting}</span>
+            </div>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              {t.syncServerDesc}
+            </p>
+          </div>
+
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 shrink-0">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+            <span>Live Sync</span>
+          </span>
+        </div>
+
+        {/* Manual Refresh / Update Data Button */}
+        {onRefreshData && (
+          <button
+            onClick={() => {
+              haptic.medium();
+              onRefreshData();
+            }}
+            disabled={isRefreshingData}
+            className="w-full py-3 px-4 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 active:scale-[0.98] text-white font-bold text-xs shadow-md shadow-blue-600/25 transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-70"
+          >
+            <RefreshCw className={`w-4 h-4 ${isRefreshingData ? 'animate-spin' : ''}`} />
+            <span>{isRefreshingData ? t.refreshingData : t.refreshDataButton}</span>
+          </button>
+        )}
+      </div>
+
+      {/* Startup Disruption Overview Setting */}
+      <div className="p-4 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 text-sm font-semibold text-slate-800 dark:text-slate-200">
+            <Bell className="w-4 h-4 text-amber-500" />
+            <span>{t.startupDisruptionOverview}</span>
+          </div>
+
+          <button
+            onClick={() => {
+              haptic.selection();
+              if (onToggleStartupOverview) {
+                onToggleStartupOverview(!startupOverviewEnabled);
+              }
+            }}
+            className={`w-12 h-7 rounded-full transition-colors relative p-1 cursor-pointer focus:outline-none ${
+              startupOverviewEnabled ? 'bg-blue-600' : 'bg-slate-300 dark:bg-slate-700'
+            }`}
+            title={t.startupDisruptionOverview}
+          >
+            <div
+              className={`w-5 h-5 rounded-full bg-white shadow-md transition-transform ${
+                startupOverviewEnabled ? 'translate-x-5' : 'translate-x-0'
+              }`}
+            />
+          </button>
+        </div>
+
+        <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+          {t.startupDisruptionOverviewDesc}
+        </p>
       </div>
 
       {/* Haptic Feedback (iOS-Style Vibrations) Setting */}

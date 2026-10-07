@@ -1,4 +1,7 @@
 import { Disruption, DisruptionType, LineId } from '../types/metro';
+import { getApiBaseUrl } from './apiConfig';
+import { collection, doc, getDocs, setDoc, deleteDoc, updateDoc, increment } from 'firebase/firestore';
+import { db } from '../firebase';
 
 const STORAGE_KEY = 'metroflow_cached_disruptions';
 const CONFIRMED_KEY = 'metroflow_user_confirmed_disruptions';
@@ -77,27 +80,57 @@ export function markUserResolved(id: string): void {
  */
 export async function fetchDisruptions(): Promise<Disruption[]> {
   const local = getLocalCachedDisruptions();
+
+  // 1. Try Firestore direct real-time cloud database
   try {
-    const res = await fetch('/api/disruptions');
+    const snap = await getDocs(collection(db, 'disruptions'));
+    const firestoreDisruptions: Disruption[] = snap.docs
+      .map((d) => d.data() as Disruption)
+      .filter((d) => d.isActive && (d.resolvedReports || 0) < 10);
+
+    const map = new Map<string, Disruption>();
+    for (const d of local) {
+      map.set(d.id, d);
+    }
+    for (const fd of firestoreDisruptions) {
+      const existing = map.get(fd.id);
+      if (existing) {
+        map.set(fd.id, {
+          ...fd,
+          confirmations: Math.max(fd.confirmations || 1, existing.confirmations || 1),
+          resolvedReports: Math.max(fd.resolvedReports || 0, existing.resolvedReports || 0),
+        });
+      } else {
+        map.set(fd.id, fd);
+      }
+    }
+
+    const merged = Array.from(map.values())
+      .filter((d) => (d.resolvedReports || 0) < 10)
+      .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+
+    setLocalCachedDisruptions(merged);
+    return merged;
+  } catch (err) {
+    console.warn('Firestore fetch for disruptions failed, attempting API fallback:', err);
+  }
+
+  // 2. Fallback to API
+  try {
+    const apiBase = getApiBaseUrl();
+    const res = await fetch(`${apiBase}/api/disruptions`);
     if (res.ok) {
       const data = await res.json();
       if (data.success && Array.isArray(data.disruptions)) {
         const serverDisruptions: Disruption[] = data.disruptions;
         
-        // Merge strategy:
-        // Use a map keyed by disruption ID.
         const map = new Map<string, Disruption>();
-
-        // 1. Add all local disruptions first
         for (const d of local) {
           map.set(d.id, d);
         }
-
-        // 2. Add or update with server disruptions
         for (const sd of serverDisruptions) {
           const existing = map.get(sd.id);
           if (existing) {
-            // Keep the highest confirmations count and freshest info
             map.set(sd.id, {
               ...sd,
               confirmations: Math.max(sd.confirmations || 1, existing.confirmations || 1),
@@ -107,29 +140,10 @@ export async function fetchDisruptions(): Promise<Disruption[]> {
           }
         }
 
-        const merged = Array.from(map.values()).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+        const merged = Array.from(map.values())
+          .filter((d) => (d.resolvedReports || 0) < 10)
+          .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
         setLocalCachedDisruptions(merged);
-
-        // If local had disruptions not yet on the server, push them to server in background
-        const serverIds = new Set(serverDisruptions.map((d) => d.id));
-        for (const locD of local) {
-          if (!serverIds.has(locD.id)) {
-            fetch('/api/disruptions', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                lineId: locD.lineId,
-                type: locD.type,
-                title: locD.title,
-                description: locD.description,
-                fromStationId: locD.fromStationId,
-                toStationId: locD.toStationId,
-                affectedStations: locD.affectedStations,
-                reportedBy: locD.reportedBy,
-              }),
-            }).catch(() => {});
-          }
-        }
 
         return merged;
       }
@@ -157,11 +171,26 @@ export async function reportDisruption(payload: NewDisruptionPayload): Promise<D
     reportedBy: payload.reportedBy,
     timestamp: Date.now(),
     confirmations: 1,
+    resolvedReports: 0,
     isActive: true,
   };
 
+  // 1. Save to Firestore
   try {
-    const res = await fetch('/api/disruptions', {
+    await setDoc(doc(db, 'disruptions', optimisticDisruption.id), optimisticDisruption);
+    const current = getLocalCachedDisruptions();
+    const updated = [optimisticDisruption, ...current.filter((d) => d.id !== optimisticDisruption.id)];
+    setLocalCachedDisruptions(updated);
+    markUserConfirmed(optimisticDisruption.id);
+    return optimisticDisruption;
+  } catch (err) {
+    console.warn('Firestore report disruption failed, attempting API fallback:', err);
+  }
+
+  // 2. Save via REST API
+  try {
+    const apiBase = getApiBaseUrl();
+    const res = await fetch(`${apiBase}/api/disruptions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -172,7 +201,6 @@ export async function reportDisruption(payload: NewDisruptionPayload): Promise<D
     if (res.ok) {
       const data = await res.json();
       if (data.success && data.disruption) {
-        // Also update local cache
         const current = getLocalCachedDisruptions();
         const updated = [data.disruption, ...current.filter((d) => d.id !== data.disruption.id)];
         setLocalCachedDisruptions(updated);
@@ -184,7 +212,7 @@ export async function reportDisruption(payload: NewDisruptionPayload): Promise<D
     console.warn('Error saving disruption to server, saving locally:', err);
   }
 
-  // Fallback: save to local cache
+  // 3. Fallback to local cache
   const current = getLocalCachedDisruptions();
   const updated = [optimisticDisruption, ...current];
   setLocalCachedDisruptions(updated);
@@ -198,14 +226,31 @@ export async function reportDisruption(payload: NewDisruptionPayload): Promise<D
 export async function confirmDisruption(disruptionId: string): Promise<number> {
   markUserConfirmed(disruptionId);
 
+  // 1. Update in Firestore
   try {
-    const res = await fetch(`/api/disruptions/${encodeURIComponent(disruptionId)}/confirm`, {
+    await updateDoc(doc(db, 'disruptions', disruptionId), {
+      confirmations: increment(1),
+    });
+    const current = getLocalCachedDisruptions();
+    const item = current.find((d) => d.id === disruptionId);
+    if (item) {
+      item.confirmations = (item.confirmations || 1) + 1;
+      setLocalCachedDisruptions(current);
+      return item.confirmations;
+    }
+  } catch (err) {
+    console.warn('Firestore confirm disruption failed, attempting API fallback:', err);
+  }
+
+  // 2. Update via REST API
+  try {
+    const apiBase = getApiBaseUrl();
+    const res = await fetch(`${apiBase}/api/disruptions/${encodeURIComponent(disruptionId)}/confirm`, {
       method: 'POST',
     });
     if (res.ok) {
       const data = await res.json();
       if (data.success && typeof data.confirmations === 'number') {
-        // Update local cache
         const current = getLocalCachedDisruptions();
         const item = current.find((d) => d.id === disruptionId);
         if (item) {
@@ -219,11 +264,11 @@ export async function confirmDisruption(disruptionId: string): Promise<number> {
     console.warn('Error confirming disruption on server:', err);
   }
 
-  // Fallback: increment locally
+  // 3. Fallback: increment locally
   const current = getLocalCachedDisruptions();
   const item = current.find((d) => d.id === disruptionId);
   if (item) {
-    item.confirmations += 1;
+    item.confirmations = (item.confirmations || 1) + 1;
     setLocalCachedDisruptions(current);
     return item.confirmations;
   }
@@ -239,20 +284,43 @@ export async function reportDisruptionResolved(
 ): Promise<{ removed: boolean; resolvedReports: number }> {
   markUserResolved(disruptionId);
 
+  const current = getLocalCachedDisruptions();
+  const item = current.find((d) => d.id === disruptionId);
+  const nextCount = (item?.resolvedReports || 0) + 1;
+
+  // 1. Update in Firestore
   try {
-    const res = await fetch(`/api/disruptions/${encodeURIComponent(disruptionId)}/resolve`, {
+    if (nextCount >= 10) {
+      await deleteDoc(doc(db, 'disruptions', disruptionId));
+      setLocalCachedDisruptions(current.filter((d) => d.id !== disruptionId));
+      return { removed: true, resolvedReports: 10 };
+    } else {
+      await updateDoc(doc(db, 'disruptions', disruptionId), {
+        resolvedReports: increment(1),
+      });
+      if (item) {
+        item.resolvedReports = nextCount;
+        setLocalCachedDisruptions(current);
+      }
+      return { removed: false, resolvedReports: nextCount };
+    }
+  } catch (err) {
+    console.warn('Firestore resolve report failed, attempting API fallback:', err);
+  }
+
+  // 2. Update via REST API
+  try {
+    const apiBase = getApiBaseUrl();
+    const res = await fetch(`${apiBase}/api/disruptions/${encodeURIComponent(disruptionId)}/resolve`, {
       method: 'POST',
     });
     if (res.ok) {
       const data = await res.json();
       if (data.success) {
         if (data.removed) {
-          const current = getLocalCachedDisruptions();
           setLocalCachedDisruptions(current.filter((d) => d.id !== disruptionId));
           return { removed: true, resolvedReports: 10 };
         } else {
-          const current = getLocalCachedDisruptions();
-          const item = current.find((d) => d.id === disruptionId);
           if (item) {
             item.resolvedReports = data.resolvedReports;
             setLocalCachedDisruptions(current);
@@ -265,21 +333,17 @@ export async function reportDisruptionResolved(
     console.warn('Error reporting disruption resolved to server:', err);
   }
 
-  // Fallback locally
-  const current = getLocalCachedDisruptions();
-  const item = current.find((d) => d.id === disruptionId);
-  if (item) {
-    const count = (item.resolvedReports || 0) + 1;
-    if (count >= 10) {
-      setLocalCachedDisruptions(current.filter((d) => d.id !== disruptionId));
-      return { removed: true, resolvedReports: 10 };
-    } else {
-      item.resolvedReports = count;
+  // 3. Fallback locally
+  if (nextCount >= 10) {
+    setLocalCachedDisruptions(current.filter((d) => d.id !== disruptionId));
+    return { removed: true, resolvedReports: 10 };
+  } else {
+    if (item) {
+      item.resolvedReports = nextCount;
       setLocalCachedDisruptions(current);
-      return { removed: false, resolvedReports: count };
     }
+    return { removed: false, resolvedReports: nextCount };
   }
-  return { removed: true, resolvedReports: 10 };
 }
 
 /**
@@ -287,7 +351,12 @@ export async function reportDisruptionResolved(
  */
 export async function deleteDisruption(disruptionId: string): Promise<void> {
   try {
-    await fetch(`/api/disruptions/${encodeURIComponent(disruptionId)}`, {
+    await deleteDoc(doc(db, 'disruptions', disruptionId));
+  } catch {}
+
+  try {
+    const apiBase = getApiBaseUrl();
+    await fetch(`${apiBase}/api/disruptions/${encodeURIComponent(disruptionId)}`, {
       method: 'DELETE',
     });
   } catch {}

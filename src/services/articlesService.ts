@@ -1,4 +1,7 @@
 import { Article } from '../types/article';
+import { getApiBaseUrl } from './apiConfig';
+import { collection, doc, getDocs, setDoc, deleteDoc, updateDoc } from 'firebase/firestore';
+import { db } from '../firebase';
 
 const ARTICLES_CACHE_KEY = 'metroflow_cached_articles';
 
@@ -96,17 +99,40 @@ export function saveLocalCachedArticles(articles: Article[]): void {
 }
 
 export async function fetchArticles(): Promise<Article[]> {
+  // 1. Try Firestore direct real-time cloud database
   try {
-    const res = await fetch('/api/articles');
-    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-    const data = await res.json();
-    if (data.success && Array.isArray(data.articles) && data.articles.length > 0) {
-      saveLocalCachedArticles(data.articles);
-      return data.articles;
+    const snap = await getDocs(collection(db, 'articles'));
+    if (!snap.empty) {
+      const list = snap.docs.map((d) => d.data() as Article);
+      list.sort((a, b) => (b.publishedAt || 0) - (a.publishedAt || 0));
+      saveLocalCachedArticles(list);
+      return list;
+    } else {
+      // First time seed into Firestore
+      await setDoc(doc(db, 'articles', DEFAULT_TUTORIAL_ARTICLE.id), DEFAULT_TUTORIAL_ARTICLE);
+      saveLocalCachedArticles([DEFAULT_TUTORIAL_ARTICLE]);
+      return [DEFAULT_TUTORIAL_ARTICLE];
+    }
+  } catch (err) {
+    console.warn('Firestore fetch for articles failed, attempting API fallback:', err);
+  }
+
+  // 2. Fallback to API
+  try {
+    const apiBase = getApiBaseUrl();
+    const res = await fetch(`${apiBase}/api/articles`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.success && Array.isArray(data.articles) && data.articles.length > 0) {
+        saveLocalCachedArticles(data.articles);
+        return data.articles;
+      }
     }
   } catch (err) {
     console.warn('Network fetch for articles failed, using offline cache:', err);
   }
+
+  // 3. Fallback to localStorage cache
   return getLocalCachedArticles();
 }
 
@@ -120,8 +146,21 @@ export async function publishArticleToServer(
     ...articleData,
   };
 
+  // 1. Save to Firestore
   try {
-    const res = await fetch('/api/articles', {
+    await setDoc(doc(db, 'articles', newArticle.id), newArticle);
+    const cached = getLocalCachedArticles();
+    const updated = [newArticle, ...cached.filter((a) => a.id !== newArticle.id)];
+    saveLocalCachedArticles(updated);
+    return newArticle;
+  } catch (err) {
+    console.warn('Firestore publish failed, attempting API fallback:', err);
+  }
+
+  // 2. Save via REST API
+  try {
+    const apiBase = getApiBaseUrl();
+    const res = await fetch(`${apiBase}/api/articles`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...articleData, adminCode }),
@@ -139,7 +178,7 @@ export async function publishArticleToServer(
     console.warn('Server publish failed, saving locally:', err);
   }
 
-  // Fallback save locally if server route is unavailable
+  // 3. Fallback save locally if server route is unavailable
   const cached = getLocalCachedArticles();
   const updated = [newArticle, ...cached];
   saveLocalCachedArticles(updated);
@@ -147,8 +186,21 @@ export async function publishArticleToServer(
 }
 
 export async function deleteArticleFromServer(id: string, adminCode: string): Promise<boolean> {
+  // 1. Delete in Firestore
   try {
-    const res = await fetch(`/api/articles/${id}`, {
+    await deleteDoc(doc(db, 'articles', id));
+    const cached = getLocalCachedArticles();
+    const updated = cached.filter((a) => a.id !== id);
+    saveLocalCachedArticles(updated);
+    return true;
+  } catch (err) {
+    console.warn('Firestore delete failed, attempting API fallback:', err);
+  }
+
+  // 2. Delete via REST API
+  try {
+    const apiBase = getApiBaseUrl();
+    const res = await fetch(`${apiBase}/api/articles/${id}`, {
       method: 'DELETE',
       headers: {
         'Content-Type': 'application/json',
@@ -165,7 +217,7 @@ export async function deleteArticleFromServer(id: string, adminCode: string): Pr
     console.warn('Server delete failed, deleting locally:', err);
   }
 
-  // Fallback local deletion
+  // 3. Fallback local deletion
   const cached = getLocalCachedArticles();
   const updated = cached.filter((a) => a.id !== id);
   saveLocalCachedArticles(updated);
@@ -177,8 +229,23 @@ export async function updateArticleOnServer(
   articleData: Partial<Omit<Article, 'id' | 'publishedAt'>>,
   adminCode: string
 ): Promise<Article> {
+  // 1. Update in Firestore
   try {
-    const res = await fetch(`/api/articles/${id}`, {
+    await updateDoc(doc(db, 'articles', id), articleData as Record<string, any>);
+    const cached = getLocalCachedArticles();
+    const existing = cached.find((a) => a.id === id);
+    const updatedArticle = { ...(existing || DEFAULT_TUTORIAL_ARTICLE), ...articleData, id };
+    const updated = cached.map((a) => (a.id === id ? updatedArticle : a));
+    saveLocalCachedArticles(updated);
+    return updatedArticle;
+  } catch (err) {
+    console.warn('Firestore update failed, attempting API fallback:', err);
+  }
+
+  // 2. Update via REST API
+  try {
+    const apiBase = getApiBaseUrl();
+    const res = await fetch(`${apiBase}/api/articles/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...articleData, adminCode }),

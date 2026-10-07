@@ -209,6 +209,14 @@ export interface Translations {
   tabBarStyleDesc: string;
   tabBarStyleIOS26: string;
   tabBarStyleClassic: string;
+  startupDisruptionOverview: string;
+  startupDisruptionOverviewDesc: string;
+  refreshDataButton: string;
+  refreshDataDesc: string;
+  refreshDataSuccess: string;
+  refreshingData: string;
+  syncServerSetting: string;
+  syncServerDesc: string;
 }
 
 export const translations: Record<Language, Translations> = {
@@ -421,6 +429,14 @@ export const translations: Record<Language, Translations> = {
     tabBarStyleDesc: 'Wähle zwischen dem schwebenden iOS 26 Glas-Dock und der klassischen Leiste.',
     tabBarStyleIOS26: 'iOS 26 Glas-Dock',
     tabBarStyleClassic: 'Klassische Leiste',
+    startupDisruptionOverview: 'Störungsübersicht beim App-Start',
+    startupDisruptionOverviewDesc: 'Zeigt beim Starten der App automatisch ein kompaktes Lagebild aller aktuellen Störungen an.',
+    refreshDataButton: 'Daten jetzt aktualisieren',
+    refreshDataDesc: 'Prüfe online nach neuen Störungsmeldungen und veröffentlichten Artikeln.',
+    refreshDataSuccess: 'Daten erfolgreich online aktualisiert!',
+    refreshingData: 'Aktualisiere...',
+    syncServerSetting: 'Online-Synchronisation',
+    syncServerDesc: 'Synchronisiert Störungen und Artikel in Echtzeit geräteübergreifend.',
   },
   en: {
     appName: 'MetroFlow',
@@ -631,5 +647,13 @@ export const translations: Record<Language, Translations> = {
     tabBarStyleDesc: 'Choose between the floating iOS 26 glass dock and the classic bar.',
     tabBarStyleIOS26: 'iOS 26 Glass Dock',
     tabBarStyleClassic: 'Classic Bar',
+    startupDisruptionOverview: 'Disruption overview on app launch',
+    startupDisruptionOverviewDesc: 'Automatically shows a brief overview of all currently reported disruptions when launching the app.',
+    refreshDataButton: 'Update data now',
+    refreshDataDesc: 'Check online for new disruption reports and published articles.',
+    refreshDataSuccess: 'Data successfully updated from online server!',
+    refreshingData: 'Updating...',
+    syncServerSetting: 'Online Synchronization',
+    syncServerDesc: 'Synchronizes disruptions and articles in real-time across all users and devices.',
   },
 };

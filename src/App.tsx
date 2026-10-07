@@ -35,6 +35,7 @@ import {
   clearRecentRoutes,
 } from './services/recentRoutesService';
 import { HomePage } from './components/HomePage';
+import { StartupDisruptionModal } from './components/StartupDisruptionModal';
 import { AppTab } from './components/TabBar';
 import { Article } from './types/article';
 import {
@@ -269,6 +270,85 @@ export default function App() {
 
   // Toast feedback
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Startup Disruption Overview Setting (default enabled)
+  const [startupOverviewEnabled, setStartupOverviewEnabled] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('metroflow_startup_overview_enabled');
+      return saved !== 'false';
+    } catch {
+      return true;
+    }
+  });
+
+  const handleToggleStartupOverview = (enabled: boolean) => {
+    setStartupOverviewEnabled(enabled);
+    try {
+      localStorage.setItem('metroflow_startup_overview_enabled', String(enabled));
+    } catch {}
+  };
+
+  const [showStartupOverview, setShowStartupOverview] = useState(false);
+  const [isRefreshingData, setIsRefreshingData] = useState(false);
+
+  // Trigger startup disruption overview once after initial render
+  useEffect(() => {
+    if (!startupOverviewEnabled) return;
+    try {
+      const alreadyShown = sessionStorage.getItem('metroflow_startup_overview_shown');
+      if (!alreadyShown) {
+        const timer = setTimeout(() => {
+          setShowStartupOverview(true);
+        }, 600);
+        return () => clearTimeout(timer);
+      }
+    } catch {}
+  }, [startupOverviewEnabled]);
+
+  const handleCloseStartupOverview = () => {
+    setShowStartupOverview(false);
+    try {
+      sessionStorage.setItem('metroflow_startup_overview_shown', 'true');
+    } catch {}
+  };
+
+  const handleNavigateFromStartupToLines = () => {
+    setShowStartupOverview(false);
+    try {
+      sessionStorage.setItem('metroflow_startup_overview_shown', 'true');
+    } catch {}
+    setActiveTab('lines');
+  };
+
+  // Manual Data Refresh (Check for new disruptions & articles)
+  const handleRefreshData = async () => {
+    setIsRefreshingData(true);
+    haptic.selection();
+    try {
+      const [freshDisruptions, freshArticles] = await Promise.all([
+        fetchDisruptions(),
+        fetchArticles(),
+      ]);
+      setDisruptions(freshDisruptions);
+      setUserConfirmedIds(getUserConfirmedIds());
+      setUserResolvedIds(getUserResolvedIds());
+      if (freshArticles && freshArticles.length > 0) {
+        setArticles(freshArticles);
+      }
+      haptic.success();
+      const count = freshDisruptions.filter((d) => d.isActive).length;
+      showToast(
+        language === 'de'
+          ? `Daten online aktualisiert (${count} Störung${count === 1 ? '' : 'en'}, ${freshArticles.length} Artikel)`
+          : `Data updated online (${count} disruption${count === 1 ? '' : 's'}, ${freshArticles.length} articles)`
+      );
+    } catch {
+      haptic.warning();
+      showToast(language === 'de' ? 'Aktualisierung fehlgeschlagen' : 'Update failed');
+    } finally {
+      setIsRefreshingData(false);
+    }
+  };
 
   const t = translations[language];
 
@@ -721,7 +801,7 @@ export default function App() {
 
       {/* Main Content Area */}
       <main
-        className={`flex-1 w-full max-w-4xl mx-auto flex flex-col ${
+        className={`flex-1 w-full max-w-4xl mx-auto flex flex-col pt-[calc(3.5rem+env(safe-area-inset-top))] ${
           activeTab === 'map' ? 'p-0 md:p-6 pb-16 md:pb-6' : 'p-4 md:p-6 pb-24 md:pb-8'
         } overflow-x-hidden`}
       >
@@ -889,11 +969,26 @@ export default function App() {
                 onToggleAdmin={handleToggleAdmin}
                 tabBarStyle={tabBarStyle}
                 onSetTabBarStyle={handleSetTabBarStyle}
+                startupOverviewEnabled={startupOverviewEnabled}
+                onToggleStartupOverview={handleToggleStartupOverview}
+                onRefreshData={handleRefreshData}
+                isRefreshingData={isRefreshingData}
               />
             </motion.div>
           )}
         </AnimatePresence>
       </main>
+
+      {/* Startup Disruption Overview Modal */}
+      <StartupDisruptionModal
+        language={language}
+        disruptions={disruptions}
+        isOpen={showStartupOverview}
+        onClose={handleCloseStartupOverview}
+        onNavigateToLines={handleNavigateFromStartupToLines}
+        startupOverviewEnabled={startupOverviewEnabled}
+        onToggleStartupOverview={handleToggleStartupOverview}
+      />
 
       {/* Bottom iOS Navigation Bar */}
       <TabBar

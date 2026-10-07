@@ -1,0 +1,82 @@
+{
+  "entities": {
+    "Article": {
+      "title": "Article",
+      "description": "Transit news, updates, or tutorials for the MetroFlow app",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "titleEn": { "type": "string" },
+        "summary": { "type": "string" },
+        "summaryEn": { "type": "string" },
+        "content": { "type": "string" },
+        "contentEn": { "type": "string" },
+        "category": {
+          "type": "string",
+          "enum": ["news", "update", "tutorial", "maintenance"]
+        },
+        "author": { "type": "string" },
+        "publishedAt": { "type": "number" },
+        "readTimeMinutes": { "type": "number" },
+        "pinned": { "type": "boolean" }
+      },
+      "required": [
+        "id",
+        "title",
+        "summary",
+        "content",
+        "category",
+        "author",
+        "publishedAt"
+      ]
+    },
+    "Disruption": {
+      "title": "Disruption",
+      "description": "User-reported live disruption on a metro or rail line",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "lineId": { "type": "string" },
+        "type": {
+          "type": "string",
+          "enum": [
+            "missing_tracks",
+            "inactive_redstone",
+            "empty_minecart",
+            "construction",
+            "closure"
+          ]
+        },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "fromStationId": { "type": "string" },
+        "toStationId": { "type": "string" },
+        "reportedBy": { "type": "string" },
+        "timestamp": { "type": "number" },
+        "confirmations": { "type": "number" },
+        "resolvedReports": { "type": "number" },
+        "isActive": { "type": "boolean" }
+      },
+      "required": [
+        "id",
+        "lineId",
+        "type",
+        "title",
+        "fromStationId",
+        "toStationId",
+        "timestamp"
+      ]
+    }
+  },
+  "firestore": {
+    "/articles/{articleId}": {
+      "schema": "Article",
+      "description": "Publicly readable news and tutorial articles published by transit operators"
+    },
+    "/disruptions/{disruptionId}": {
+      "schema": "Disruption",
+      "description": "Real-time crowdsourced disruption reports synchronized across all devices"
+    }
+  }
+}
