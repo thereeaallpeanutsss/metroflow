@@ -25,6 +25,7 @@ import {
   getUserResolvedIds,
   reportDisruptionResolved,
   getLocalCachedDisruptions,
+  subscribeToDisruptions,
   NewDisruptionPayload,
 } from './services/disruptionsService';
 import {
@@ -44,6 +45,7 @@ import {
   updateArticleOnServer,
   deleteArticleFromServer,
   getLocalCachedArticles,
+  subscribeToArticles,
 } from './services/articlesService';
 import { haptic } from './utils/haptics';
 import { BookmarkCheck, Train, TrainFront, ChevronUp, ChevronDown } from 'lucide-react';
@@ -71,11 +73,34 @@ export default function App() {
   const [articles, setArticles] = useState<Article[]>(getLocalCachedArticles);
 
   useEffect(() => {
+    let isMounted = true;
+    // Initial fetch
     fetchArticles().then((fetched) => {
-      if (fetched && fetched.length > 0) {
+      if (isMounted && fetched && fetched.length > 0) {
         setArticles(fetched);
       }
     });
+
+    // Real-time Firestore sync
+    const unsubscribe = subscribeToArticles((liveArticles) => {
+      if (isMounted && liveArticles && liveArticles.length > 0) {
+        setArticles(liveArticles);
+      }
+    });
+
+    // Background interval sync (every 6s)
+    const interval = setInterval(async () => {
+      const fetched = await fetchArticles();
+      if (isMounted && fetched && fetched.length > 0) {
+        setArticles(fetched);
+      }
+    }, 6000);
+
+    return () => {
+      isMounted = false;
+      unsubscribe();
+      clearInterval(interval);
+    };
   }, []);
 
   const handlePublishArticle = async (data: Omit<Article, 'id' | 'publishedAt'>) => {
@@ -352,7 +377,7 @@ export default function App() {
 
   const t = translations[language];
 
-  // Fetch disruptions and set up polling interval (every 7s) to sync live reports
+  // Fetch disruptions and set up real-time listener + polling interval (every 6s) to sync live reports
   useEffect(() => {
     let isMounted = true;
     const syncDisruptions = async () => {
@@ -365,9 +390,19 @@ export default function App() {
     };
 
     syncDisruptions();
-    const interval = setInterval(syncDisruptions, 7000);
+
+    const unsubscribe = subscribeToDisruptions((liveDisruptions) => {
+      if (isMounted) {
+        setDisruptions(liveDisruptions);
+        setUserConfirmedIds(getUserConfirmedIds());
+        setUserResolvedIds(getUserResolvedIds());
+      }
+    });
+
+    const interval = setInterval(syncDisruptions, 6000);
     return () => {
       isMounted = false;
+      unsubscribe();
       clearInterval(interval);
     };
   }, []);
@@ -801,8 +836,10 @@ export default function App() {
 
       {/* Main Content Area */}
       <main
-        className={`flex-1 w-full max-w-4xl mx-auto flex flex-col pt-[calc(3.5rem+env(safe-area-inset-top))] ${
-          activeTab === 'map' ? 'p-0 md:p-6 pb-16 md:pb-6' : 'p-4 md:p-6 pb-24 md:pb-8'
+        className={`flex-1 w-full max-w-4xl mx-auto flex flex-col ${
+          activeTab === 'map'
+            ? 'px-0 md:px-6 pt-[calc(3.5rem+env(safe-area-inset-top))] pb-16 md:pb-6'
+            : 'px-4 md:px-6 pt-[calc(3.5rem+env(safe-area-inset-top)+1.25rem)] pb-24 md:pb-8'
         } overflow-x-hidden`}
       >
         <AnimatePresence mode="wait">

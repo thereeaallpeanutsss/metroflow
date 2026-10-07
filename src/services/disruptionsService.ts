@@ -1,7 +1,23 @@
 import { Disruption, DisruptionType, LineId } from '../types/metro';
 import { getApiBaseUrl } from './apiConfig';
-import { collection, doc, getDocs, setDoc, deleteDoc, updateDoc, increment } from 'firebase/firestore';
+import { collection, doc, getDocs, setDoc, deleteDoc, updateDoc, increment, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
+
+function sanitizeForFirestore(obj: Record<string, any>): Record<string, any> {
+  const clean: Record<string, any> = {};
+  for (const [key, val] of Object.entries(obj)) {
+    if (val !== undefined) {
+      if (Array.isArray(val)) {
+        clean[key] = val.filter((item) => item !== undefined);
+      } else if (val !== null && typeof val === 'object') {
+        clean[key] = sanitizeForFirestore(val);
+      } else {
+        clean[key] = val;
+      }
+    }
+  }
+  return clean;
+}
 
 const STORAGE_KEY = 'metroflow_cached_disruptions';
 const CONFIRMED_KEY = 'metroflow_user_confirmed_disruptions';
@@ -163,12 +179,12 @@ export async function reportDisruption(payload: NewDisruptionPayload): Promise<D
     id: fallbackId,
     lineId: payload.lineId,
     type: payload.type,
-    title: payload.title,
-    description: payload.description,
+    title: payload.title || `${payload.type} on line ${payload.lineId}`,
+    description: payload.description || '',
     fromStationId: payload.fromStationId,
     toStationId: payload.toStationId,
-    affectedStations: payload.affectedStations,
-    reportedBy: payload.reportedBy,
+    affectedStations: payload.affectedStations || [payload.fromStationId, payload.toStationId],
+    reportedBy: payload.reportedBy || 'Passenger',
     timestamp: Date.now(),
     confirmations: 1,
     resolvedReports: 0,
@@ -177,7 +193,8 @@ export async function reportDisruption(payload: NewDisruptionPayload): Promise<D
 
   // 1. Save to Firestore
   try {
-    await setDoc(doc(db, 'disruptions', optimisticDisruption.id), optimisticDisruption);
+    const firestoreData = sanitizeForFirestore(optimisticDisruption);
+    await setDoc(doc(db, 'disruptions', optimisticDisruption.id), firestoreData);
     const current = getLocalCachedDisruptions();
     const updated = [optimisticDisruption, ...current.filter((d) => d.id !== optimisticDisruption.id)];
     setLocalCachedDisruptions(updated);
@@ -364,4 +381,52 @@ export async function deleteDisruption(disruptionId: string): Promise<void> {
   const current = getLocalCachedDisruptions();
   const updated = current.filter((d) => d.id !== disruptionId);
   setLocalCachedDisruptions(updated);
+}
+
+/**
+ * Real-time Firestore synchronization for disruptions across all devices.
+ */
+export function subscribeToDisruptions(callback: (disruptions: Disruption[]) => void): () => void {
+  try {
+    const unsubscribe = onSnapshot(
+      collection(db, 'disruptions'),
+      (snap) => {
+        const firestoreDisruptions: Disruption[] = snap.docs
+          .map((d) => d.data() as Disruption)
+          .filter((d) => d.isActive && (d.resolvedReports || 0) < 10);
+
+        const local = getLocalCachedDisruptions();
+        const map = new Map<string, Disruption>();
+        for (const d of local) {
+          map.set(d.id, d);
+        }
+        for (const fd of firestoreDisruptions) {
+          const existing = map.get(fd.id);
+          if (existing) {
+            map.set(fd.id, {
+              ...fd,
+              confirmations: Math.max(fd.confirmations || 1, existing.confirmations || 1),
+              resolvedReports: Math.max(fd.resolvedReports || 0, existing.resolvedReports || 0),
+            });
+          } else {
+            map.set(fd.id, fd);
+          }
+        }
+
+        const merged = Array.from(map.values())
+          .filter((d) => (d.resolvedReports || 0) < 10)
+          .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+
+        setLocalCachedDisruptions(merged);
+        callback(merged);
+      },
+      (err) => {
+        console.warn('Firestore onSnapshot listener error for disruptions:', err);
+      }
+    );
+    return unsubscribe;
+  } catch (err) {
+    console.warn('Failed to attach Firestore snapshot listener for disruptions:', err);
+    return () => {};
+  }
 }

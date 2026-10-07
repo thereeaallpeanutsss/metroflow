@@ -1,6 +1,6 @@
 import { Article } from '../types/article';
 import { getApiBaseUrl } from './apiConfig';
-import { collection, doc, getDocs, setDoc, deleteDoc, updateDoc } from 'firebase/firestore';
+import { collection, doc, getDocs, setDoc, deleteDoc, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
 
 const ARTICLES_CACHE_KEY = 'metroflow_cached_articles';
@@ -81,6 +81,25 @@ This app was designed to provide swift, reliable, and seamless journey planning 
 Have a pleasant trip across ÄÄPIZRM!`
 };
 
+/**
+ * Removes any undefined values to prevent Firestore SDK validation errors
+ */
+function sanitizeForFirestore(obj: Record<string, any>): Record<string, any> {
+  const clean: Record<string, any> = {};
+  for (const [key, val] of Object.entries(obj)) {
+    if (val !== undefined) {
+      if (Array.isArray(val)) {
+        clean[key] = val.filter((item) => item !== undefined);
+      } else if (val !== null && typeof val === 'object') {
+        clean[key] = sanitizeForFirestore(val);
+      } else {
+        clean[key] = val;
+      }
+    }
+  }
+  return clean;
+}
+
 export function getLocalCachedArticles(): Article[] {
   try {
     const raw = localStorage.getItem(ARTICLES_CACHE_KEY);
@@ -98,20 +117,43 @@ export function saveLocalCachedArticles(articles: Article[]): void {
   } catch {}
 }
 
+/**
+ * Fetches all published articles from Firestore or API, merging with local cache.
+ */
 export async function fetchArticles(): Promise<Article[]> {
+  const local = getLocalCachedArticles();
+
   // 1. Try Firestore direct real-time cloud database
   try {
     const snap = await getDocs(collection(db, 'articles'));
     if (!snap.empty) {
-      const list = snap.docs.map((d) => d.data() as Article);
-      list.sort((a, b) => (b.publishedAt || 0) - (a.publishedAt || 0));
-      saveLocalCachedArticles(list);
-      return list;
+      const list: Article[] = snap.docs.map((d) => d.data() as Article);
+
+      // Merge with local cache so articles never disappear
+      const map = new Map<string, Article>();
+      for (const a of local) {
+        map.set(a.id, a);
+      }
+      for (const fa of list) {
+        map.set(fa.id, fa);
+      }
+
+      if (!map.has(DEFAULT_TUTORIAL_ARTICLE.id)) {
+        map.set(DEFAULT_TUTORIAL_ARTICLE.id, DEFAULT_TUTORIAL_ARTICLE);
+      }
+
+      const merged = Array.from(map.values()).sort(
+        (a, b) => (b.publishedAt || 0) - (a.publishedAt || 0)
+      );
+
+      saveLocalCachedArticles(merged);
+      return merged;
     } else {
-      // First time seed into Firestore
-      await setDoc(doc(db, 'articles', DEFAULT_TUTORIAL_ARTICLE.id), DEFAULT_TUTORIAL_ARTICLE);
-      saveLocalCachedArticles([DEFAULT_TUTORIAL_ARTICLE]);
-      return [DEFAULT_TUTORIAL_ARTICLE];
+      // First time seed default article into Firestore
+      try {
+        await setDoc(doc(db, 'articles', DEFAULT_TUTORIAL_ARTICLE.id), sanitizeForFirestore(DEFAULT_TUTORIAL_ARTICLE));
+      } catch {}
+      return local.length > 0 ? local : [DEFAULT_TUTORIAL_ARTICLE];
     }
   } catch (err) {
     console.warn('Firestore fetch for articles failed, attempting API fallback:', err);
@@ -124,8 +166,21 @@ export async function fetchArticles(): Promise<Article[]> {
     if (res.ok) {
       const data = await res.json();
       if (data.success && Array.isArray(data.articles) && data.articles.length > 0) {
-        saveLocalCachedArticles(data.articles);
-        return data.articles;
+        const map = new Map<string, Article>();
+        for (const a of local) {
+          map.set(a.id, a);
+        }
+        for (const sa of data.articles) {
+          map.set(sa.id, sa);
+        }
+        if (!map.has(DEFAULT_TUTORIAL_ARTICLE.id)) {
+          map.set(DEFAULT_TUTORIAL_ARTICLE.id, DEFAULT_TUTORIAL_ARTICLE);
+        }
+        const merged = Array.from(map.values()).sort(
+          (a, b) => (b.publishedAt || 0) - (a.publishedAt || 0)
+        );
+        saveLocalCachedArticles(merged);
+        return merged;
       }
     }
   } catch (err) {
@@ -133,66 +188,107 @@ export async function fetchArticles(): Promise<Article[]> {
   }
 
   // 3. Fallback to localStorage cache
-  return getLocalCachedArticles();
+  return local.length > 0 ? local : [DEFAULT_TUTORIAL_ARTICLE];
 }
 
+/**
+ * Real-time Firestore synchronization for articles across all devices.
+ */
+export function subscribeToArticles(callback: (articles: Article[]) => void): () => void {
+  try {
+    const unsubscribe = onSnapshot(
+      collection(db, 'articles'),
+      (snap) => {
+        if (!snap.empty) {
+          const list: Article[] = snap.docs.map((d) => d.data() as Article);
+          const local = getLocalCachedArticles();
+          const map = new Map<string, Article>();
+          for (const a of local) {
+            map.set(a.id, a);
+          }
+          for (const fa of list) {
+            map.set(fa.id, fa);
+          }
+          if (!map.has(DEFAULT_TUTORIAL_ARTICLE.id)) {
+            map.set(DEFAULT_TUTORIAL_ARTICLE.id, DEFAULT_TUTORIAL_ARTICLE);
+          }
+          const merged = Array.from(map.values()).sort(
+            (a, b) => (b.publishedAt || 0) - (a.publishedAt || 0)
+          );
+          saveLocalCachedArticles(merged);
+          callback(merged);
+        }
+      },
+      (err) => {
+        console.warn('Firestore onSnapshot error for articles:', err);
+      }
+    );
+    return unsubscribe;
+  } catch (err) {
+    console.warn('Failed to attach Firestore snapshot listener for articles:', err);
+    return () => {};
+  }
+}
+
+/**
+ * Publishes an article and synchronizes it immediately across Firestore and REST API.
+ */
 export async function publishArticleToServer(
   articleData: Omit<Article, 'id' | 'publishedAt'>,
   adminCode: string
 ): Promise<Article> {
-  const newArticle: Article = {
+  const cleanArticle: Article = {
     id: `article-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
     publishedAt: Date.now(),
-    ...articleData,
+    title: articleData.title?.trim() || 'Untitled',
+    titleEn: articleData.titleEn?.trim() || articleData.title?.trim() || '',
+    summary: articleData.summary?.trim() || articleData.title?.trim() || '',
+    summaryEn: articleData.summaryEn?.trim() || articleData.summary?.trim() || '',
+    content: articleData.content?.trim() || '',
+    contentEn: articleData.contentEn?.trim() || articleData.content?.trim() || '',
+    category: articleData.category || 'news',
+    author: articleData.author?.trim() || 'ÄÄPIZRM Verkehrsbetriebe',
+    readTimeMinutes: articleData.readTimeMinutes || 1,
+    pinned: Boolean(articleData.pinned),
+    tags: Array.isArray(articleData.tags) ? articleData.tags.filter(Boolean) : [],
   };
 
-  // 1. Save to Firestore
+  // 1. Direct write to Firestore for instant cross-device synchronization
   try {
-    await setDoc(doc(db, 'articles', newArticle.id), newArticle);
+    const firestoreData = sanitizeForFirestore(cleanArticle);
+    await setDoc(doc(db, 'articles', cleanArticle.id), firestoreData);
     const cached = getLocalCachedArticles();
-    const updated = [newArticle, ...cached.filter((a) => a.id !== newArticle.id)];
+    const updated = [cleanArticle, ...cached.filter((a) => a.id !== cleanArticle.id)];
     saveLocalCachedArticles(updated);
-    return newArticle;
   } catch (err) {
     console.warn('Firestore publish failed, attempting API fallback:', err);
   }
 
-  // 2. Save via REST API
+  // 2. Also save via REST API (dual-sync)
   try {
     const apiBase = getApiBaseUrl();
-    const res = await fetch(`${apiBase}/api/articles`, {
+    await fetch(`${apiBase}/api/articles`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...articleData, adminCode }),
+      body: JSON.stringify({ ...cleanArticle, adminCode }),
     });
-    if (res.ok) {
-      const data = await res.json();
-      if (data.success && data.article) {
-        const cached = getLocalCachedArticles();
-        const updated = [data.article, ...cached.filter((a) => a.id !== data.article.id)];
-        saveLocalCachedArticles(updated);
-        return data.article;
-      }
-    }
   } catch (err) {
-    console.warn('Server publish failed, saving locally:', err);
+    console.warn('REST API publish fallback:', err);
   }
 
-  // 3. Fallback save locally if server route is unavailable
   const cached = getLocalCachedArticles();
-  const updated = [newArticle, ...cached];
+  const updated = [cleanArticle, ...cached.filter((a) => a.id !== cleanArticle.id)];
   saveLocalCachedArticles(updated);
-  return newArticle;
+  return cleanArticle;
 }
 
+/**
+ * Deletes an article from Firestore and REST API.
+ */
 export async function deleteArticleFromServer(id: string, adminCode: string): Promise<boolean> {
   // 1. Delete in Firestore
   try {
     await deleteDoc(doc(db, 'articles', id));
-    const cached = getLocalCachedArticles();
-    const updated = cached.filter((a) => a.id !== id);
-    saveLocalCachedArticles(updated);
-    return true;
   } catch (err) {
     console.warn('Firestore delete failed, attempting API fallback:', err);
   }
@@ -200,44 +296,50 @@ export async function deleteArticleFromServer(id: string, adminCode: string): Pr
   // 2. Delete via REST API
   try {
     const apiBase = getApiBaseUrl();
-    const res = await fetch(`${apiBase}/api/articles/${id}`, {
+    await fetch(`${apiBase}/api/articles/${id}`, {
       method: 'DELETE',
       headers: {
         'Content-Type': 'application/json',
         'x-admin-code': adminCode,
       },
     });
-    if (res.ok) {
-      const cached = getLocalCachedArticles();
-      const updated = cached.filter((a) => a.id !== id);
-      saveLocalCachedArticles(updated);
-      return true;
-    }
   } catch (err) {
-    console.warn('Server delete failed, deleting locally:', err);
+    console.warn('Server delete fallback:', err);
   }
 
-  // 3. Fallback local deletion
   const cached = getLocalCachedArticles();
   const updated = cached.filter((a) => a.id !== id);
   saveLocalCachedArticles(updated);
   return true;
 }
 
+/**
+ * Updates an article in Firestore and REST API.
+ */
 export async function updateArticleOnServer(
   id: string,
   articleData: Partial<Omit<Article, 'id' | 'publishedAt'>>,
   adminCode: string
 ): Promise<Article> {
+  const cached = getLocalCachedArticles();
+  const existing = cached.find((a) => a.id === id);
+  const updatedArticle: Article = {
+    ...(existing || DEFAULT_TUTORIAL_ARTICLE),
+    ...articleData,
+    id,
+    title: articleData.title?.trim() || existing?.title || 'Untitled',
+    summary: articleData.summary?.trim() || existing?.summary || '',
+    content: articleData.content?.trim() || existing?.content || '',
+    category: articleData.category || existing?.category || 'news',
+    author: articleData.author?.trim() || existing?.author || 'ÄÄPIZRM Verkehrsbetriebe',
+    pinned: articleData.pinned !== undefined ? Boolean(articleData.pinned) : Boolean(existing?.pinned),
+    tags: Array.isArray(articleData.tags) ? articleData.tags.filter(Boolean) : existing?.tags || [],
+  };
+
   // 1. Update in Firestore
   try {
-    await updateDoc(doc(db, 'articles', id), articleData as Record<string, any>);
-    const cached = getLocalCachedArticles();
-    const existing = cached.find((a) => a.id === id);
-    const updatedArticle = { ...(existing || DEFAULT_TUTORIAL_ARTICLE), ...articleData, id };
-    const updated = cached.map((a) => (a.id === id ? updatedArticle : a));
-    saveLocalCachedArticles(updated);
-    return updatedArticle;
+    const firestoreData = sanitizeForFirestore(updatedArticle);
+    await setDoc(doc(db, 'articles', id), firestoreData, { merge: true });
   } catch (err) {
     console.warn('Firestore update failed, attempting API fallback:', err);
   }
@@ -245,40 +347,14 @@ export async function updateArticleOnServer(
   // 2. Update via REST API
   try {
     const apiBase = getApiBaseUrl();
-    const res = await fetch(`${apiBase}/api/articles/${id}`, {
+    await fetch(`${apiBase}/api/articles/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...articleData, adminCode }),
+      body: JSON.stringify({ ...updatedArticle, adminCode }),
     });
-    if (res.ok) {
-      const data = await res.json();
-      if (data.success && data.article) {
-        const cached = getLocalCachedArticles();
-        const updated = cached.map((a) => (a.id === id ? data.article : a));
-        saveLocalCachedArticles(updated);
-        return data.article;
-      }
-    }
   } catch (err) {
-    console.warn('Server update failed, updating locally:', err);
+    console.warn('Server update fallback:', err);
   }
-
-  // Fallback local update
-  const cached = getLocalCachedArticles();
-  const existing = cached.find((a) => a.id === id);
-  const updatedArticle: Article = {
-    ...(existing || {
-      id,
-      title: articleData.title || 'Untitled',
-      summary: articleData.summary || '',
-      content: articleData.content || '',
-      category: articleData.category || 'news',
-      author: articleData.author || 'ÄÄPIZRM Verkehrsbetriebe',
-      publishedAt: Date.now(),
-      readTimeMinutes: 1,
-    }),
-    ...articleData,
-  };
 
   const updated = cached.map((a) => (a.id === id ? updatedArticle : a));
   saveLocalCachedArticles(updated);
