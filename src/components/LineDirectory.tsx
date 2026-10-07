@@ -3,6 +3,7 @@ import { LineId, Station, Disruption, LineNetworkType } from '../types/metro';
 import { METRO_LINES, STATIONS } from '../data/metroData';
 import { Language, translations } from '../utils/i18n';
 import { ReportDisruptionModal } from './ReportDisruptionModal';
+import { ConfirmDeleteDisruptionModal } from './ConfirmDeleteDisruptionModal';
 import { NewDisruptionPayload } from '../services/disruptionsService';
 import { haptic } from '../utils/haptics';
 import {
@@ -68,6 +69,7 @@ export const LineDirectory: React.FC<LineDirectoryProps> = ({
   const [filterType, setFilterType] = useState<'all' | 'airport' | 'ic' | 'accessible'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+  const [disruptionToDelete, setDisruptionToDelete] = useState<Disruption | null>(null);
 
   const activeLine = METRO_LINES[selectedLineId];
 
@@ -210,16 +212,21 @@ export const LineDirectory: React.FC<LineDirectoryProps> = ({
               return (
                 <div
                   key={disrupt.id}
-                  className="p-3.5 rounded-2xl bg-amber-50/80 dark:bg-amber-950/30 border border-amber-200/80 dark:border-amber-800/50 text-xs space-y-2 text-slate-800 dark:text-slate-200"
+                  className="p-3 sm:p-3.5 rounded-2xl bg-amber-50/80 dark:bg-amber-950/30 border border-amber-200/80 dark:border-amber-800/50 text-xs space-y-2.5 text-slate-800 dark:text-slate-200 overflow-hidden"
                 >
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2 font-bold text-amber-900 dark:text-amber-200">
-                      {getDisruptionTypeIcon(disrupt.type)}
-                      <span>{disrupt.title}</span>
+                  {/* Card Title & Line Badge */}
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-2 font-bold text-amber-900 dark:text-amber-200 min-w-0">
+                      <div className="shrink-0 mt-0.5">
+                        {getDisruptionTypeIcon(disrupt.type)}
+                      </div>
+                      <span className="break-words leading-tight text-xs sm:text-sm font-bold">
+                        {disrupt.title}
+                      </span>
                     </div>
                     {line && (
                       <span
-                        className="px-2 py-0.5 rounded text-[10px] font-bold text-white shadow-xs shrink-0"
+                        className="px-2 py-0.5 rounded text-[10px] font-bold text-white shadow-xs shrink-0 self-start"
                         style={{ backgroundColor: line.color }}
                       >
                         {line.badge}
@@ -228,13 +235,13 @@ export const LineDirectory: React.FC<LineDirectoryProps> = ({
                   </div>
 
                   {/* Section between stations */}
-                  <div className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-700 dark:text-slate-300 pl-6">
+                  <div className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-700 dark:text-slate-300">
                     <MapPin className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
-                    <span>
+                    <span className="truncate">
                       {fromName} ↔ {toName}
                     </span>
                     {disrupt.affectedStations && disrupt.affectedStations.length > 2 && (
-                      <span className="text-[10px] font-normal text-slate-500 dark:text-slate-400">
+                      <span className="text-[10px] font-normal text-slate-500 dark:text-slate-400 shrink-0">
                         ({disrupt.affectedStations.length} Stationen)
                       </span>
                     )}
@@ -242,32 +249,38 @@ export const LineDirectory: React.FC<LineDirectoryProps> = ({
 
                   {/* Description note */}
                   {disrupt.description && (
-                    <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed pl-6 italic">
+                    <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed italic bg-amber-100/40 dark:bg-amber-900/20 px-2.5 py-1.5 rounded-xl border border-amber-200/50 dark:border-amber-800/30">
                       "{disrupt.description}"
                     </p>
                   )}
 
-                  {/* Reporter tag & Confirmation action */}
-                  <div className="pt-2 pl-6 flex flex-wrap items-center justify-between gap-2 border-t border-amber-200/60 dark:border-amber-800/40">
-                    <div className="flex items-center gap-1.5 text-[10px] text-slate-500 dark:text-slate-400">
-                      {disrupt.reportedBy && (
-                        <span className="flex items-center gap-1">
-                          <User className="w-3 h-3 text-slate-400" />
-                          <span>{disrupt.reportedBy}</span>
-                        </span>
-                      )}
-                      <span>•</span>
-                      <span>Vor wenigen Minuten</span>
+                  {/* Meta Info & Responsive Action Buttons */}
+                  <div className="pt-2.5 border-t border-amber-200/60 dark:border-amber-800/40 space-y-2">
+                    <div className="flex items-center justify-between text-[10px] text-slate-500 dark:text-slate-400">
+                      <div className="flex items-center gap-1.5">
+                        {disrupt.reportedBy && (
+                          <span className="flex items-center gap-1">
+                            <User className="w-3 h-3 text-slate-400" />
+                            <span className="truncate max-w-[120px] sm:max-w-none">{disrupt.reportedBy}</span>
+                          </span>
+                        )}
+                        <span>•</span>
+                        <span>{language === 'de' ? 'Live-Meldung' : 'Live Report'}</span>
+                      </div>
+                      <span className="text-[10px] text-amber-700 dark:text-amber-300 font-medium shrink-0">
+                        {disrupt.confirmations} {disrupt.confirmations === 1 ? 'Bestätigung' : 'Bestätigungen'}
+                      </span>
                     </div>
 
-                    <div className="flex items-center gap-1.5">
+                    {/* Community Action Buttons - Mobile Responsive Grid */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 w-full">
                       {/* Confirmation Button */}
                       <button
                         onClick={() => {
                           haptic.medium();
                           onConfirmDisruption(disrupt.id);
                         }}
-                        className={`px-2.5 py-1 rounded-xl text-[10px] font-bold flex items-center gap-1.5 transition active:scale-95 border ${
+                        className={`w-full py-2 px-2.5 rounded-xl text-[11px] font-bold flex items-center justify-center gap-1.5 transition active:scale-95 border cursor-pointer ${
                           hasConfirmed
                             ? 'bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-700 shadow-xs'
                             : 'bg-white dark:bg-slate-800 hover:bg-amber-100 dark:hover:bg-amber-900/40 text-amber-800 dark:text-amber-200 border-amber-200 dark:border-amber-700'
@@ -275,18 +288,18 @@ export const LineDirectory: React.FC<LineDirectoryProps> = ({
                       >
                         {hasConfirmed ? (
                           <>
-                            <ShieldCheck className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-                            <span>{t.confirmed} ({disrupt.confirmations})</span>
+                            <ShieldCheck className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
+                            <span className="truncate">{t.confirmed} ({disrupt.confirmations})</span>
                           </>
                         ) : (
                           <>
-                            <ThumbsUp className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-                            <span>{t.confirmDisruption} ({disrupt.confirmations})</span>
+                            <ThumbsUp className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                            <span className="truncate">{t.confirmDisruption} ({disrupt.confirmations})</span>
                           </>
                         )}
                       </button>
 
-                      {/* Report Disruption Gone / Resolved (disappears after 10 reports) */}
+                      {/* Report Disruption Gone / Resolved */}
                       {onReportResolved && (
                         <button
                           onClick={() => {
@@ -294,7 +307,7 @@ export const LineDirectory: React.FC<LineDirectoryProps> = ({
                             onReportResolved(disrupt.id);
                           }}
                           disabled={userResolvedIds.includes(disrupt.id)}
-                          className={`px-2.5 py-1 rounded-xl text-[10px] font-bold flex items-center gap-1.5 transition active:scale-95 border ${
+                          className={`w-full py-2 px-2.5 rounded-xl text-[11px] font-bold flex items-center justify-center gap-1.5 transition active:scale-95 border cursor-pointer ${
                             userResolvedIds.includes(disrupt.id)
                               ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800 opacity-90'
                               : 'bg-white dark:bg-slate-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/60'
@@ -305,8 +318,8 @@ export const LineDirectory: React.FC<LineDirectoryProps> = ({
                               : 'When 10 users report this disruption is resolved, it will be automatically removed.'
                           }
                         >
-                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                          <span>
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                          <span className="truncate">
                             {userResolvedIds.includes(disrupt.id)
                               ? t.disruptionGoneReported
                               : t.reportDisruptionGone}{' '}
@@ -314,41 +327,46 @@ export const LineDirectory: React.FC<LineDirectoryProps> = ({
                           </span>
                         </button>
                       )}
+                    </div>
 
-                      {/* Admin Management Buttons: Edit & Delete */}
-                      {isAdmin && (
-                        <div className="flex items-center gap-1.5 pl-2 border-l border-amber-200 dark:border-amber-800/60">
+                    {/* Admin Management Toolbar: Edit & Delete Disruption */}
+                    {isAdmin && (
+                      <div className="pt-2 mt-1 border-t border-amber-200/80 dark:border-amber-800/50 flex items-center justify-between gap-2">
+                        <span className="text-[10px] font-extrabold uppercase tracking-wider text-rose-600 dark:text-rose-400 flex items-center gap-1 shrink-0">
+                          <ShieldCheck className="w-3.5 h-3.5" />
+                          <span>Admin</span>
+                        </span>
+
+                        <div className="flex items-center gap-1.5">
                           {onEditDisruption && (
                             <button
                               onClick={() => {
                                 haptic.medium();
                                 onEditDisruption(disrupt);
                               }}
-                              className="px-2 py-1 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 active:scale-95 text-slate-800 dark:text-slate-200 text-[10px] font-bold flex items-center gap-1 border border-slate-300 dark:border-slate-700 transition"
+                              className="px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 active:scale-95 text-slate-800 dark:text-slate-200 text-[11px] font-bold flex items-center gap-1 border border-slate-300 dark:border-slate-700 transition cursor-pointer"
                               title={t.editDisruption}
                             >
                               <Pencil className="w-3 h-3 text-blue-600 dark:text-blue-400" />
-                              <span>{t.editDisruption}</span>
+                              <span>{language === 'de' ? 'Bearbeiten' : 'Edit'}</span>
                             </button>
                           )}
                           {onDeleteDisruption && (
                             <button
-                              onClick={async () => {
-                                if (window.confirm(t.confirmDeleteDisruption)) {
-                                  haptic.medium();
-                                  await onDeleteDisruption(disrupt.id);
-                                }
+                              onClick={() => {
+                                haptic.warning();
+                                setDisruptionToDelete(disrupt);
                               }}
-                              className="px-2 py-1 rounded-xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/50 active:scale-95 text-rose-600 dark:text-rose-400 text-[10px] font-bold flex items-center gap-1 border border-rose-200 dark:border-rose-900 transition"
+                              className="px-2.5 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/50 active:scale-95 text-rose-600 dark:text-rose-400 text-[11px] font-bold flex items-center gap-1 border border-rose-200 dark:border-rose-900 transition cursor-pointer"
                               title={t.deleteDisruption}
                             >
                               <Trash2 className="w-3 h-3" />
-                              <span>{t.deleteDisruption}</span>
+                              <span>{language === 'de' ? 'Löschen' : 'Delete'}</span>
                             </button>
                           )}
                         </div>
-                      )}
-                    </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               );
@@ -373,6 +391,22 @@ export const LineDirectory: React.FC<LineDirectoryProps> = ({
         onClose={() => setIsReportModalOpen(false)}
         onSubmit={onReportDisruption}
         preselectedLineId={selectedLineId}
+      />
+
+      {/* Admin Disruption Delete Confirmation Modal */}
+      <ConfirmDeleteDisruptionModal
+        language={language}
+        disruption={disruptionToDelete}
+        isOpen={!!disruptionToDelete}
+        onClose={() => setDisruptionToDelete(null)}
+        onConfirm={async () => {
+          if (!disruptionToDelete) return;
+          const id = disruptionToDelete.id;
+          setDisruptionToDelete(null);
+          if (onDeleteDisruption) {
+            await onDeleteDisruption(id);
+          }
+        }}
       />
 
       {/* Network Type Selector: Metro vs IC Trains */}

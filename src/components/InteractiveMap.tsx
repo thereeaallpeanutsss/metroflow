@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Station, LineId, RouteOption, Disruption } from '../types/metro';
 import { STATIONS, METRO_LINES } from '../data/metroData';
 import { Language, translations } from '../utils/i18n';
+import { ConfirmDeleteDisruptionModal } from './ConfirmDeleteDisruptionModal';
 import { haptic } from '../utils/haptics';
 import {
   ZoomIn,
@@ -118,6 +119,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
   const [hoveredStationId, setHoveredStationId] = useState<string | null>(null);
   const [clickedStationId, setClickedStationId] = useState<string | null>(null);
   const [selectedDisruption, setSelectedDisruption] = useState<Disruption | null>(null);
+  const [disruptionToDelete, setDisruptionToDelete] = useState<Disruption | null>(null);
   const [showLegend, setShowLegend] = useState(false);
   const [internalLegendExpanded, setInternalLegendExpanded] = useState(false);
 
@@ -1689,18 +1691,14 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                   )}
                   {onDeleteDisruption && (
                     <button
-                      onClick={async () => {
-                        if (window.confirm(t.confirmDeleteDisruption)) {
-                          haptic.medium();
-                          const id = selectedDisruption.id;
-                          setSelectedDisruption(null);
-                          await onDeleteDisruption(id);
-                        }
+                      onClick={() => {
+                        haptic.warning();
+                        setDisruptionToDelete(selectedDisruption);
                       }}
-                      className="py-1.5 px-3 rounded-xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/50 active:scale-95 text-rose-600 dark:text-rose-400 font-bold text-[11px] flex items-center gap-1.5 border border-rose-200 dark:border-rose-900 shadow-xs transition"
+                      className="py-1.5 px-3 rounded-xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/50 active:scale-95 text-rose-600 dark:text-rose-400 font-bold text-[11px] flex items-center gap-1.5 border border-rose-200 dark:border-rose-900 shadow-xs transition cursor-pointer"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
-                      <span>{t.deleteDisruption}</span>
+                      <span>{language === 'de' ? 'Löschen' : 'Delete'}</span>
                     </button>
                   )}
                 </div>
@@ -1816,6 +1814,22 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
           </motion.div>
         )}
       </AnimatePresence>
+      {/* Admin Disruption Delete Confirmation Modal */}
+      <ConfirmDeleteDisruptionModal
+        language={language}
+        disruption={disruptionToDelete}
+        isOpen={!!disruptionToDelete}
+        onClose={() => setDisruptionToDelete(null)}
+        onConfirm={async () => {
+          if (!disruptionToDelete) return;
+          const id = disruptionToDelete.id;
+          setDisruptionToDelete(null);
+          setSelectedDisruption(null);
+          if (onDeleteDisruption) {
+            await onDeleteDisruption(id);
+          }
+        }}
+      />
     </div>
   );
 };

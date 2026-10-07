@@ -308,16 +308,20 @@ export const TabBar: React.FC<TabBarProps> = ({
       style={{
         position: 'fixed',
         bottom: 'max(env(safe-area-inset-bottom, 0px), 0.85rem)',
-        left: '50%',
-        transform: 'translateX(-50%)',
+        left: 0,
+        right: 0,
+        marginLeft: 'auto',
+        marginRight: 'auto',
+        width: 'max-content',
+        maxWidth: 'calc(100vw - 1.25rem)',
         zIndex: 50,
       }}
-      className="fixed bottom-3 sm:bottom-4 left-1/2 -translate-x-1/2 z-50 w-auto max-w-[96vw] sm:max-w-md pointer-events-auto select-none"
+      className="fixed bottom-3 sm:bottom-4 inset-x-0 mx-auto w-max max-w-[calc(100vw-1.25rem)] sm:max-w-md z-50 pointer-events-auto select-none"
     >
       {/* Outer Floating Dock Track */}
       <div
         ref={dockRef}
-        className="relative p-1.5 rounded-full bg-slate-100/75 dark:bg-slate-900/75 backdrop-blur-3xl backdrop-saturate-150 border border-black/5 dark:border-white/10 shadow-[0_12px_36px_rgba(0,0,0,0.1)] dark:shadow-[0_18px_50px_rgba(0,0,0,0.65)] flex items-center gap-1 overflow-visible"
+        className="relative p-1.5 rounded-full bg-slate-100/75 dark:bg-slate-900/75 backdrop-blur-3xl backdrop-saturate-150 border border-black/5 dark:border-white/10 shadow-[0_12px_36px_rgba(0,0,0,0.1)] dark:shadow-[0_18px_50px_rgba(0,0,0,0.65)] flex items-center justify-center gap-1 overflow-visible"
       >
         {/* Soft bevel rim */}
         <div className="absolute inset-0 rounded-full pointer-events-none ring-1 ring-inset ring-white/60 dark:ring-white/10" />
