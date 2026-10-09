@@ -615,6 +615,16 @@ export default function App() {
     setActiveTab('plan');
   };
 
+  const handleResetRoute = () => {
+    haptic.light();
+    setOriginId(null);
+    setDestinationId(null);
+    setStopoverId(null);
+    setRoutes([]);
+    setActiveRoute(null);
+    setHasCalculatedRoute(false);
+  };
+
   const handleSelectRecentRoute = (recent: RecentRoute) => {
     haptic.light();
     setOriginId(recent.originId);
@@ -975,6 +985,7 @@ export default function App() {
                 onReportResolved={handleReportResolved}
                 routePlanningEnabled={mapRoutePlanningEnabled}
                 onNavigateToPlanner={handleNavigateToPlanner}
+                onResetRoute={handleResetRoute}
                 isAdmin={isAdmin}
                 onEditDisruption={handleOpenEditDisruption}
                 onDeleteDisruption={handleDeleteDisruption}

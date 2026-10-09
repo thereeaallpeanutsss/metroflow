@@ -1232,6 +1232,20 @@ export const TripPlanner: React.FC<TripPlannerProps> = ({
                     )}
                   </div>
 
+                  {/* Jurassic Park transfer notice on IC 10 */}
+                  {leg.lineId === 'U-Dunkelblau' && leg.stations.includes('jurassic-park') && (
+                    <div className="ml-3 pl-6 my-1.5">
+                      <div className="p-2 rounded-2xl bg-sky-50 dark:bg-sky-950/40 border border-sky-200 dark:border-sky-800 text-[11px] text-sky-900 dark:text-sky-200 flex items-center gap-2">
+                        <Train className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400 shrink-0" />
+                        <span>
+                          {language === 'de'
+                            ? 'Wichtig: Bei der Durchfahrt von Jurassic Park ist ein betrieblicher Zugwechsel erforderlich (Linie IC 10).'
+                            : 'Important: Train transfer required when passing through Jurassic Park (Line IC 10).'}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Disruption Alert in Step-by-Step Itinerary if on this leg */}
                   {legDisruptions.length > 0 && (
                     <div className="ml-3 pl-6 my-2 space-y-1.5">

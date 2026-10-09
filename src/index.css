@@ -40,3 +40,20 @@
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
+/* High-performance GPU-accelerated active route animation */
+@keyframes routeFlowDash {
+  from {
+    stroke-dashoffset: 32;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.route-flow-line,
+.animate-train-flow {
+  animation: routeFlowDash 1s linear infinite;
+  will-change: stroke-dashoffset;
+  transform: translateZ(0);
+}

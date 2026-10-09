@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Station, LineId, RouteOption, Disruption } from '../types/metro';
 import { STATIONS, METRO_LINES } from '../data/metroData';
+import { buildLegTrackPath } from '../utils/trackPaths';
 import { Language, translations } from '../utils/i18n';
 import { ConfirmDeleteDisruptionModal } from './ConfirmDeleteDisruptionModal';
 import { haptic } from '../utils/haptics';
@@ -33,6 +34,7 @@ import {
   ChevronDown,
   Pencil,
   Trash2,
+  Search,
 } from 'lucide-react';
 
 interface InteractiveMapProps {
@@ -61,6 +63,7 @@ interface InteractiveMapProps {
   onReportResolved?: (id: string) => Promise<void>;
   routePlanningEnabled?: boolean;
   onNavigateToPlanner?: () => void;
+  onResetRoute?: () => void;
   isAdmin?: boolean;
   onEditDisruption?: (disruption: Disruption) => void;
   onDeleteDisruption?: (disruptionId: string) => Promise<void>;
@@ -92,6 +95,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
   onReportResolved,
   routePlanningEnabled = true,
   onNavigateToPlanner,
+  onResetRoute,
   isAdmin = false,
   onEditDisruption,
   onDeleteDisruption,
@@ -118,10 +122,15 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [hoveredStationId, setHoveredStationId] = useState<string | null>(null);
   const [clickedStationId, setClickedStationId] = useState<string | null>(null);
+  const [clickedLineId, setClickedLineId] = useState<LineId | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [selectedDisruption, setSelectedDisruption] = useState<Disruption | null>(null);
   const [disruptionToDelete, setDisruptionToDelete] = useState<Disruption | null>(null);
   const [showLegend, setShowLegend] = useState(false);
   const [internalLegendExpanded, setInternalLegendExpanded] = useState(false);
+
+  const clickedLine = clickedLineId ? METRO_LINES[clickedLineId] : null;
 
   const isExpanded = controlledLegendExpanded !== undefined ? controlledLegendExpanded : internalLegendExpanded;
   const handleToggleLegend = () => {
@@ -138,7 +147,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
       onSelectLineFilter(lId);
     }
   };
-  const hasBottomSheet = Boolean(clickedStationId || selectedDisruption);
+  const hasBottomSheet = Boolean(clickedStationId || selectedDisruption || clickedLineId);
 
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -209,6 +218,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
     setZoom(mobile ? 1.05 : 1);
     setPan({ x: 0, y: 0 });
     setClickedStationId(null);
+    setClickedLineId(null);
     setSelectedDisruption(null);
   };
 
@@ -315,7 +325,16 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
     e.stopPropagation();
     haptic.light();
     setClickedStationId(stationId);
+    setClickedLineId(null);
     onSelectStation(stationId);
+  };
+
+  const handleLineClick = (e: React.MouseEvent | React.TouchEvent, lineId: LineId) => {
+    e.stopPropagation();
+    haptic.selection();
+    setClickedLineId((prev) => (prev === lineId ? null : lineId));
+    setClickedStationId(null);
+    setSelectedDisruption(null);
   };
 
   // Check if a station is on active journey
@@ -330,16 +349,65 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
   };
 
   // Base background opacity when a route is active
-  // Requirement: "in the metro map, only highlight the active journey (not the entire lines)"
   const baseLineOpacity = activeRoute ? 0.2 : 0.9;
 
+  // Highlight lines passing through the clicked station (or active route or clickedLineId)
+  const isLineHighlighted = (lineId: string) => {
+    if (clickedLineId) {
+      return clickedLineId === lineId;
+    }
+    if (clickedStationId) {
+      const st = STATIONS[clickedStationId];
+      return st ? st.lines.includes(lineId) : false;
+    }
+    if (activeRoute) {
+      return activeRoute.linesUsed.includes(lineId);
+    }
+    return false;
+  };
+
+  const getLineOpacity = (lineId: string, base: number = baseLineOpacity) => {
+    if (clickedLineId) {
+      return clickedLineId === lineId ? 1 : 0.08;
+    }
+    if (clickedStationId) {
+      const st = STATIONS[clickedStationId];
+      if (st && st.lines.includes(lineId)) {
+        return 1;
+      }
+      return 0.12;
+    }
+    if (activeRoute) {
+      return activeRoute.linesUsed.includes(lineId) ? 1 : 0.2;
+    }
+    if (activeLineFilter !== 'ALL') {
+      return activeLineFilter === lineId ? 1 : 0.08;
+    }
+    return base;
+  };
+
   const clickedStation = clickedStationId ? STATIONS[clickedStationId] : null;
+
+  const matchingStations = searchQuery.trim()
+    ? Object.values(STATIONS).filter((st) => {
+        const q = searchQuery.toLowerCase().trim();
+        return (
+          st.name.toLowerCase().includes(q) ||
+          st.id.toLowerCase().includes(q) ||
+          st.lines.some((l) => l.toLowerCase().includes(q))
+        );
+      }).slice(0, 6)
+    : [];
 
   // Filter stations to show based on showMetroLayer and showICLayer, or if on active journey
   const visibleStations = Object.values(STATIONS).filter((st) => {
     if (activeRoute && activeRoute.pathStationIds.includes(st.id)) return true;
-    const hasMetro = st.lines.some((l) => !l.startsWith('IC'));
-    const hasIC = st.lines.some((l) => l.startsWith('IC'));
+    if (st.id === 'kuhl-town') return true;
+    const isICLine = (l: string) =>
+      l.startsWith('IC') ||
+      ['U-Türkis', 'U-Pink', 'U-Dunkelblau', 'U-Hellblau', 'U-Violett'].includes(l);
+    const hasMetro = st.lines.some((l) => !isICLine(l));
+    const hasIC = st.lines.some(isICLine);
 
     if (showMetroLayer && showICLayer) return true;
     if (showMetroLayer && !showICLayer) return hasMetro;
@@ -362,7 +430,11 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
-      onClick={() => setClickedStationId(null)}
+      onClick={() => {
+        setClickedStationId(null);
+        setClickedLineId(null);
+        setSelectedDisruption(null);
+      }}
     >
       {/* Background transit grid pattern */}
       <div
@@ -478,17 +550,167 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
         </div>
       </div>
 
-      {/* Map Header Overlay */}
-      <div className="absolute top-3 left-3 sm:top-4 sm:left-4 z-10 pointer-events-none max-w-[calc(100%-4.2rem)] sm:max-w-[calc(100%-6.5rem)]">
+      {/* Top-Left Search Bar & Network Header Overlay */}
+      <div className="absolute top-3 left-3 sm:top-4 sm:left-4 z-20 flex flex-col gap-2 max-w-[270px] sm:max-w-xs w-full pointer-events-auto">
+        {/* Station Search Input */}
+        <div className="relative flex items-center bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl border border-slate-200/90 dark:border-slate-800/90 rounded-2xl shadow-xl px-3 py-2 transition-all focus-within:ring-2 focus-within:ring-blue-500/50">
+          <Search className="w-4 h-4 text-slate-400 dark:text-slate-500 shrink-0 mr-2" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              setIsSearchFocused(true);
+            }}
+            onFocus={() => setIsSearchFocused(true)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && matchingStations.length > 0) {
+                const target = matchingStations[0];
+                haptic.selection();
+                setClickedStationId(target.id);
+                onSelectStation(target.id);
+                setSearchQuery('');
+                setIsSearchFocused(false);
+                const targetZoom = Math.max(zoom, 1.45);
+                setZoom(targetZoom);
+                setPan(clampPan(- (target.x - (isMobile ? 550 : 510)) * targetZoom, - (target.y - 360) * targetZoom, targetZoom));
+              } else if (e.key === 'Escape') {
+                setIsSearchFocused(false);
+              }
+            }}
+            placeholder={language === 'de' ? 'Station suchen & hervorheben...' : 'Search & highlight station...'}
+            className="bg-transparent text-xs sm:text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 outline-none w-full font-medium"
+            onClick={(e) => e.stopPropagation()}
+          />
+          {searchQuery && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setSearchQuery('');
+              }}
+              className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5 ml-1 transition"
+              title="Löschen"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+
+        {/* Search Results Dropdown */}
+        <AnimatePresence>
+          {isSearchFocused && matchingStations.length > 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: -4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              transition={{ duration: 0.15 }}
+              className="bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl p-1.5 space-y-1 overflow-hidden max-h-60 overflow-y-auto"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {matchingStations.map((station) => (
+                <button
+                  key={station.id}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    haptic.selection();
+                    setClickedStationId(station.id);
+                    onSelectStation(station.id);
+                    setSearchQuery('');
+                    setIsSearchFocused(false);
+                    // Center smoothly on selected station
+                    const targetZoom = Math.max(zoom, 1.45);
+                    setZoom(targetZoom);
+                    setPan(clampPan(- (station.x - (isMobile ? 550 : 510)) * targetZoom, - (station.y - 360) * targetZoom, targetZoom));
+                  }}
+                  className="w-full flex items-center justify-between p-2 rounded-xl text-left hover:bg-slate-100 dark:hover:bg-slate-800/80 transition group"
+                >
+                  <div className="flex items-center gap-2 truncate">
+                    <MapPin className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                    <div className="truncate">
+                      <div className="text-xs font-semibold text-slate-900 dark:text-white truncate">
+                        {station.name}
+                      </div>
+                      <div className="text-[10px] text-slate-500 dark:text-slate-400 truncate flex items-center gap-1">
+                        {station.hasAirport && <span>✈</span>}
+                        {station.hasIC && <span>🚆</span>}
+                        {station.isAccessible && <span>♿</span>}
+                        <span>{station.lines.length} {language === 'de' ? 'Linien' : 'lines'}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0 ml-2">
+                    {station.lines.slice(0, 3).map((lId) => (
+                      <span
+                        key={lId}
+                        className="px-1 py-0.5 rounded text-[8px] font-bold text-white shadow-xs"
+                        style={{ backgroundColor: METRO_LINES[lId]?.color || '#475569' }}
+                      >
+                        {METRO_LINES[lId]?.badge || lId}
+                      </span>
+                    ))}
+                  </div>
+                </button>
+              ))}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Map Header Overlay Card */}
         <div className="bg-white/85 dark:bg-slate-900/85 backdrop-blur-md px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 shadow-md">
-          <div className="text-[9px] sm:text-[10px] tracking-wider uppercase text-blue-600 dark:text-blue-400 font-bold">
-            ÄÄPIZRM 044
+          <div className="text-[9px] sm:text-[10px] tracking-wider uppercase text-blue-600 dark:text-blue-400 font-bold flex items-center justify-between">
+            <span>ÄÄPIZRM 044</span>
+            {clickedStation && (
+              <span className="text-[9px] text-emerald-600 dark:text-emerald-400 font-semibold truncate ml-1">
+                ● {clickedStation.name}
+              </span>
+            )}
+            {clickedLine && (
+              <span className="text-[9px] font-semibold truncate ml-1" style={{ color: clickedLine.color }}>
+                ● {clickedLine.badge}
+              </span>
+            )}
           </div>
           <h2 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white tracking-wide truncate">
             {t.map} {showMetroLayer && showICLayer ? '(U-Bahn + IC)' : showMetroLayer ? '(U-Bahn)' : showICLayer ? '(IC-Züge)' : ''}
           </h2>
-          <div className="text-[9px] sm:text-[10px] text-slate-500 dark:text-slate-400 font-medium truncate">
-            {activeRoute ? 'Aktive Verbindung hervorgehoben' : 'Gesamtnetz'}
+          <div className="text-[9px] sm:text-[10px] text-slate-500 dark:text-slate-400 font-medium truncate flex items-center gap-1.5 flex-wrap">
+            <span>
+              {clickedLine
+                ? (language === 'de' ? `Linie ${clickedLine.badge} hervorgehoben` : `Line ${clickedLine.badge} highlighted`)
+                : clickedStation
+                ? (language === 'de' ? `Linien an ${clickedStation.name} hervorgehoben` : `Lines at ${clickedStation.name} highlighted`)
+                : activeRoute
+                ? (language === 'de' ? 'Aktive Verbindung hervorgehoben' : 'Active route highlighted')
+                : (language === 'de' ? 'Gesamtnetz' : 'Full network')}
+            </span>
+            {(clickedStation || clickedLine) && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  haptic.light();
+                  setClickedStationId(null);
+                  setClickedLineId(null);
+                }}
+                className="text-[9px] sm:text-[10px] text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-0.5 ml-1 font-semibold"
+              >
+                <span>{language === 'de' ? 'Alle anzeigen' : 'Show all'}</span>
+              </button>
+            )}
+            {activeRoute && onResetRoute && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  haptic.light();
+                  onResetRoute();
+                  setClickedStationId(null);
+                }}
+                className="text-[9px] sm:text-[10px] text-rose-600 dark:text-rose-400 hover:underline flex items-center gap-0.5 ml-1 font-semibold"
+                title={language === 'de' ? 'Route zurücksetzen' : 'Reset route'}
+              >
+                <RotateCcw className="w-2.5 h-2.5" />
+                <span>{language === 'de' ? 'Zurücksetzen' : 'Reset'}</span>
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -514,6 +736,31 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
             </button>
           </div>
           <div className="space-y-2.5 mt-3">
+            {/* Classification from official diagram (IMG_8215) */}
+            <div className="p-2 rounded-xl bg-blue-50/70 dark:bg-blue-950/40 border border-blue-200/60 dark:border-blue-900/40 text-[11px] space-y-1.5">
+              <div className="font-bold text-blue-900 dark:text-blue-300">
+                {language === 'de' ? 'Offizieller U-Bahn-Plan:' : 'Official Transit Map:'}
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-1.5 rounded-full bg-emerald-600 shrink-0" />
+                <span className="text-slate-700 dark:text-slate-300">
+                  {language === 'de' ? 'Einfarbig: U-Bahn Linien' : 'Solid: Metro Lines'}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-1.5 rounded-full border border-black bg-white shrink-0" />
+                <span className="text-slate-700 dark:text-slate-300">
+                  {language === 'de' ? 'Gestreift: IC-Linien (Express)' : 'Striped: IC Train Lines'}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-1 border-b-2 border-dashed border-slate-900 dark:border-white shrink-0" />
+                <span className="text-slate-700 dark:text-slate-300">
+                  {language === 'de' ? 'Gestrichelt: Zukunft / In Planung' : 'Dashed: Future / Planned'}
+                </span>
+              </div>
+            </div>
+
             <div className="flex items-center gap-2.5">
               <span className="text-base">✈</span>
               <span>{t.airport}</span>
@@ -523,30 +770,22 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
               <span>{t.icTrains} (Umstieg)</span>
             </div>
             <div className="flex items-center gap-2.5">
-              <span className="text-base">⚙️</span>
-              <span>{t.transferRequired}</span>
-            </div>
-            <div className="flex items-center gap-2.5">
               <span className="text-base">♿</span>
               <span>{t.accessible}</span>
             </div>
             <div className="flex items-center gap-2.5">
-              <div className="w-5 h-2.5 rounded-md bg-slate-400 border border-slate-700 shrink-0" />
-              <span>(Haupt-) Bahnhof / Umstieg</span>
+              <div className="w-4 h-4 rounded-full border-2 border-black bg-white shrink-0" />
+              <span>{language === 'de' ? 'Knotenpunkt / Umsteigebahnhof' : 'Transfer Station'}</span>
             </div>
             <div className="flex items-center gap-2.5">
-              <div className="w-3.5 h-3.5 rounded-full bg-slate-400 border-2 border-slate-700 shrink-0" />
-              <span>{t.regularStation}</span>
-            </div>
-            <div className="flex items-center gap-2.5">
-              <div className="w-4 h-4 rounded-full border border-purple-500 text-[8px] flex items-center justify-center font-bold text-purple-600 dark:text-purple-300 shrink-0">
-                T
+              <div className="w-3.5 h-3.5 rounded-sm border-2 border-black bg-white flex items-center justify-center text-[8px] font-bold shrink-0">
+                ×
               </div>
-              <span>{t.timTrainStation}</span>
+              <span>Carls Hotel (Schlosshotel)</span>
             </div>
-            <div className="flex items-center gap-2.5 pt-1 border-t border-slate-200 dark:border-slate-800">
-              <div className="w-6 h-1.5 bg-rose-600 rounded-sm shrink-0" />
-              <span className="font-semibold text-rose-600 dark:text-rose-400">IC-Zuglinie (Überland)</span>
+            <div className="flex items-center gap-2.5">
+              <div className="w-3 h-3 rounded-full bg-black shrink-0" />
+              <span>Kuhl Town</span>
             </div>
           </div>
         </motion.div>
@@ -555,11 +794,12 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
 
       {/* Main SVG Vector Canvas */}
       <svg
-        viewBox={isMobile ? '280 20 670 610' : '0 0 1020 680'}
-        className="w-full h-full transition-transform duration-75 origin-center select-none"
+        viewBox={isMobile ? '160 20 780 680' : '0 0 1020 720'}
+        className={`w-full h-full origin-center select-none ${isDragging ? '' : 'transition-transform duration-100 ease-out'}`}
         preserveAspectRatio="xMidYMid meet"
         style={{
-          transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+          transform: `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${zoom})`,
+          willChange: isDragging ? 'transform' : 'auto',
         }}
       >
         <defs>
@@ -574,337 +814,995 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
           </pattern>
         </defs>
 
+        {/* Transparent canvas click target to dismiss selection when clicking empty space */}
+        <rect
+          x="-500"
+          y="-500"
+          width="2020"
+          height="1720"
+          fill="transparent"
+          className="cursor-default"
+          onClick={() => {
+            setClickedStationId(null);
+            setClickedLineId(null);
+            setSelectedDisruption(null);
+          }}
+        />
+
+        {/* ----------------- WATERWAY: SOUTH CANAL / RIVER ----------------- */}
+        <path
+          d="
+            M 315 362
+            L 415 362
+            Q 438 362, 438 388
+            L 438 395
+            Q 438 405, 465 405
+            L 500 405
+            Q 525 405, 545 385
+            L 560 375
+            L 665 375
+          "
+          fill="none"
+          stroke={theme === 'dark' ? '#1E3A5F' : '#CFE7F5'}
+          strokeWidth="24"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeOpacity={theme === 'dark' ? 0.45 : 0.95}
+          className="pointer-events-none"
+        />
+
         {/* ----------------- BASE METRO LINES (BACKGROUND) ----------------- */}
-        {/* When activeRoute exists, these are gently dimmed so ONLY the active journey stands out! */}
-        {(showMetroLayer || (activeRoute && activeRoute.linesUsed.some((l) => !l.startsWith('IC')))) && (
+        {(showMetroLayer || (activeRoute && activeRoute.linesUsed.some((l) => !l.startsWith('IC') && !['U-Türkis', 'U-Pink', 'U-Dunkelblau', 'U-Hellblau', 'U-Violett'].includes(l))) || (clickedStation && clickedStation.lines.some((l) => !l.startsWith('IC') && !['U-Türkis', 'U-Pink', 'U-Dunkelblau', 'U-Hellblau', 'U-Violett'].includes(l))) || (clickedLineId && !clickedLineId.startsWith('IC') && !['U-Türkis', 'U-Pink', 'U-Dunkelblau', 'U-Hellblau', 'U-Violett'].includes(clickedLineId))) && (
           <g id="metro-train-layer" className="transition-opacity duration-300">
-            {/* 1. GREEN LINE (U-Grün) */}
-        <path
-          d="
-            M 485 82
-            L 388 82
-            L 388 216
-            L 388 300
-            L 388 412
-            Q 388 458, 412 458
-            L 458 458
-            L 530 458
-            Q 544 458, 544 480
-            L 544 525
-            Q 544 545, 520 545
-            L 458 545
-            L 458 620
-            L 565 620
-            L 690 620
-            L 850 620
-            Q 930 620, 930 570
-            L 930 520
-          "
-          fill="none"
-          stroke={METRO_LINES['U-Grün'].color}
-          strokeWidth="6"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeOpacity={activeLineFilter === 'ALL' || activeLineFilter === 'U-Grün' ? baseLineOpacity : 0.08}
-          className="transition-all duration-300"
-        />
+            {/* 1. GREEN LINE (U-Grün / U1) - Villen Viertel Nord ↔ Daniel Tower ↔ Strand ↔ Traphgon Airport */}
+            <g
+              id="line-group-U-Grün"
+              className="cursor-pointer"
+              onClick={(e) => handleLineClick(e, 'U-Grün')}
+            >
+              <path
+                d="
+                  M 505 175
+                  L 340 175
+                  L 340 335
+                  L 340 518
+                  L 340 568
+                  L 340 678
+                  L 405 678
+                  L 515 678
+                  L 635 678
+                  L 755 678
+                  L 830 678
+                  L 830 642
+                "
+                fill="none"
+                stroke="transparent"
+                strokeWidth="24"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              <path
+                d="
+                  M 505 175
+                  L 340 175
+                  L 340 335
+                  L 340 518
+                  L 340 568
+                  L 340 678
+                  L 405 678
+                  L 515 678
+                  L 635 678
+                  L 755 678
+                  L 830 678
+                  L 830 642
+                "
+                fill="none"
+                stroke={METRO_LINES['U-Grün'].color}
+                strokeWidth={isLineHighlighted('U-Grün') ? 8.5 : 6}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeOpacity={getLineOpacity('U-Grün')}
+                filter={isLineHighlighted('U-Grün') ? 'url(#routeGlow)' : undefined}
+                className="transition-all duration-300"
+              />
+            </g>
 
-        {/* 2. RED LINE (U-Rot) */}
-        <path
-          d="
-            M 458 154
-            L 394 154
-            Q 394 154, 394 175
-            L 394 216
-            L 394 250
-            L 458 250
-            L 458 350
-            L 530 350
-            L 604 350
-            L 604 275
-          "
-          fill="none"
-          stroke={METRO_LINES['U-Rot'].color}
-          strokeWidth="6"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeOpacity={activeLineFilter === 'ALL' || activeLineFilter === 'U-Rot' ? baseLineOpacity : 0.08}
-          className="transition-all duration-300"
-        />
+            {/* 2. RED LINE (U-Rot / U2) - North End ↔ Daniel Tower ↔ Gare du Nord ↔ Mosslands Explorers */}
+            <g
+              id="line-group-U-Rot"
+              className="cursor-pointer"
+              onClick={(e) => handleLineClick(e, 'U-Rot')}
+            >
+              <path
+                d="
+                  M 405 280
+                  L 346 280
+                  L 346 335
+                  L 346 388
+                  L 405 388
+                  L 405 415
+                  L 370 415
+                  L 370 445
+                  L 455 445
+                  L 520 445
+                  L 570 445
+                  L 570 410
+                  L 570 400
+                  L 635 400
+                "
+                fill="none"
+                stroke="transparent"
+                strokeWidth="24"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              <path
+                d="
+                  M 405 280
+                  L 346 280
+                  L 346 335
+                  L 346 388
+                  L 405 388
+                  L 405 415
+                  L 370 415
+                  L 370 445
+                  L 455 445
+                  L 520 445
+                  L 570 445
+                  L 570 410
+                  L 570 400
+                  L 635 400
+                "
+                fill="none"
+                stroke={METRO_LINES['U-Rot'].color}
+                strokeWidth={isLineHighlighted('U-Rot') ? 8.5 : 6}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeOpacity={getLineOpacity('U-Rot')}
+                filter={isLineHighlighted('U-Rot') ? 'url(#routeGlow)' : undefined}
+                className="transition-all duration-300"
+              />
+            </g>
 
-        {/* 3. ORANGE LINE (U-Orange) */}
-        <path
-          d="
-            M 604 212
-            L 530 212
-            L 384 212
-            L 384 300
-            L 384 412
-            Q 384 452, 412 452
-            L 458 452
-            L 530 452
-            Q 538 452, 538 475
-            L 538 525
-            Q 538 535, 520 535
-            L 458 535
-          "
-          fill="none"
-          stroke={METRO_LINES['U-Orange'].color}
-          strokeWidth="6"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeOpacity={activeLineFilter === 'ALL' || activeLineFilter === 'U-Orange' ? baseLineOpacity : 0.08}
-          className="transition-all duration-300"
-        />
+            {/* 3. ORANGE LINE (U-Orange / U4) - Daniel Tower ↔ South Canal Quarter ↔ City Center */}
+            <g
+              id="line-group-U-Orange"
+              className="cursor-pointer"
+              onClick={(e) => handleLineClick(e, 'U-Orange')}
+            >
+              <path
+                d="
+                  M 340 335
+                  L 485 335
+                  L 485 346
+                  L 505 346
+                  L 570 346
+                "
+                fill="none"
+                stroke="transparent"
+                strokeWidth="24"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              <path
+                d="
+                  M 340 335
+                  L 485 335
+                  L 485 346
+                  L 505 346
+                  L 570 346
+                "
+                fill="none"
+                stroke={METRO_LINES['U-Orange'].color}
+                strokeWidth={isLineHighlighted('U-Orange') ? 8.5 : 6}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeOpacity={getLineOpacity('U-Orange')}
+                filter={isLineHighlighted('U-Orange') ? 'url(#routeGlow)' : undefined}
+                className="transition-all duration-300"
+              />
+            </g>
 
-        {/* 4. BLUE LINE (U-Blau) */}
-        <path
-          d="
-            M 380 216
-            L 380 300
-            L 380 412
-            Q 380 446, 412 446
-            L 458 446
-            L 530 446
-            Q 532 446, 532 470
-            L 532 520
-            Q 532 525, 520 525
-            L 458 525
-          "
-          fill="none"
-          stroke={METRO_LINES['U-Blau'].color}
-          strokeWidth="6"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeOpacity={activeLineFilter === 'ALL' || activeLineFilter === 'U-Blau' ? baseLineOpacity : 0.08}
-          className="transition-all duration-300"
-        />
-        <path
-          d="M 690 458 L 690 620"
-          fill="none"
-          stroke={METRO_LINES['U-Blau'].color}
-          strokeWidth="6"
-          strokeLinecap="round"
-          strokeOpacity={activeLineFilter === 'ALL' || activeLineFilter === 'U-Blau' ? baseLineOpacity : 0.08}
-          className="transition-all duration-300"
-        />
+            {/* 4. TIM TRAIN (Lila) - North End ↔ Squishmallow City ↔ City Center ↔ Dog Care */}
+            <g
+              id="line-group-Tim-Train"
+              className="cursor-pointer"
+              onClick={(e) => handleLineClick(e, 'Tim-Train')}
+            >
+              <path
+                d="
+                  M 405 280
+                  L 505 280
+                  L 516 280
+                  L 516 338
+                  L 570 338
+                  L 570 352
+                  L 625 352
+                  L 670 352
+                  L 715 352
+                "
+                fill="none"
+                stroke="transparent"
+                strokeWidth="24"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              <path
+                d="
+                  M 405 280
+                  L 505 280
+                  L 516 280
+                  L 516 338
+                  L 570 338
+                  L 570 352
+                  L 625 352
+                  L 670 352
+                  L 715 352
+                "
+                fill="none"
+                stroke={METRO_LINES['Tim-Train'].color}
+                strokeWidth={isLineHighlighted('Tim-Train') ? 8.5 : 6}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeOpacity={getLineOpacity('Tim-Train')}
+                filter={isLineHighlighted('Tim-Train') ? 'url(#routeGlow)' : undefined}
+                className="transition-all duration-300"
+              />
+            </g>
 
-        {/* 5. BLACK LINE (U-Schwarz) */}
-        <path
-          d="M 604 220 L 530 220"
-          fill="none"
-          stroke={METRO_LINES['U-Schwarz'].color}
-          strokeWidth="6"
-          strokeLinecap="round"
-          strokeOpacity={activeLineFilter === 'ALL' || activeLineFilter === 'U-Schwarz' ? baseLineOpacity : 0.08}
-          className="transition-all duration-300"
-        />
-        <path
-          d="
-            M 530 154
-            L 530 216
-            L 530 275
-            L 530 350
-            L 530 458
-            L 690 458
-            L 930 458
-            L 930 520
-          "
-          fill="none"
-          stroke={theme === 'dark' ? '#E2E8F0' : '#18181B'}
-          strokeWidth="6"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeOpacity={activeLineFilter === 'ALL' || activeLineFilter === 'U-Schwarz' ? baseLineOpacity : 0.08}
-          className="transition-all duration-300"
-        />
+            {/* 5. BLACK LINE (U-Schwarz / U3) - City Center ↔ Gare du Nord ↔ Central Station ↔ Traphgon Airport */}
+            <g
+              id="line-group-U-Schwarz"
+              className="cursor-pointer"
+              onClick={(e) => handleLineClick(e, 'U-Schwarz')}
+            >
+              <path
+                d="
+                  M 570 352
+                  L 505 352
+                  L 455 352
+                  L 455 370
+                  L 455 445
+                  L 455 532
+                  L 455 568
+                  L 635 568
+                  L 824 568
+                  L 824 642
+                  L 830 642
+                "
+                fill="none"
+                stroke="transparent"
+                strokeWidth="24"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              <path
+                d="
+                  M 570 352
+                  L 505 352
+                  L 455 352
+                  L 455 370
+                  L 455 445
+                  L 455 532
+                  L 455 568
+                  L 635 568
+                  L 824 568
+                  L 824 642
+                  L 830 642
+                "
+                fill="none"
+                stroke={theme === 'dark' ? '#E2E8F0' : '#18181B'}
+                strokeWidth={isLineHighlighted('U-Schwarz') ? 8.5 : 6}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeOpacity={getLineOpacity('U-Schwarz')}
+                filter={isLineHighlighted('U-Schwarz') ? 'url(#routeGlow)' : undefined}
+                className="transition-all duration-300"
+              />
+            </g>
 
-        {/* 6. TIM TRAIN (Lila) */}
-        <path
-          d="
-            M 530 154
-            Q 530 196, 560 196
-            L 636 196
-            L 700 196
-            L 772 196
-          "
-          fill="none"
-          stroke={METRO_LINES['Tim-Train'].color}
-          strokeWidth="6"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeOpacity={activeLineFilter === 'ALL' || activeLineFilter === 'Tim-Train' ? baseLineOpacity : 0.08}
-          className="transition-all duration-300"
-        />
-        </g>
-        )}
+            {/* 6. LIME GREEN LINE (U-Hellgrün / U6) - Lake Road ↔ Gare du Nord ↔ Place de La Geigèr */}
+            <g
+              id="line-group-U-Hellgrün"
+              className="cursor-pointer"
+              onClick={(e) => handleLineClick(e, 'U-Hellgrün')}
+            >
+              <path
+                d="
+                  M 395 486
+                  L 395 451
+                  L 455 451
+                  L 485 451
+                  L 485 486
+                "
+                fill="none"
+                stroke="transparent"
+                strokeWidth="24"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              <path
+                d="
+                  M 395 486
+                  L 395 451
+                  L 455 451
+                  L 485 451
+                  L 485 486
+                "
+                fill="none"
+                stroke={METRO_LINES['U-Hellgrün'].color}
+                strokeWidth={isLineHighlighted('U-Hellgrün') ? 8.5 : 6}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeOpacity={getLineOpacity('U-Hellgrün')}
+                filter={isLineHighlighted('U-Hellgrün') ? 'url(#routeGlow)' : undefined}
+                className="transition-all duration-300"
+              />
+            </g>
 
-        {/* ----------------- INTER CITY TRAINS (IC-ZÜGE) LAYER ----------------- */}
-        {(showICLayer || (activeRoute && activeRoute.linesUsed.some((l) => l.startsWith('IC')))) && (
-          <g id="ic-train-layer" className="transition-opacity duration-300">
-            {/* IC Track Base Rail lines (charcoal railway styling) */}
-            {/* IC-1 & IC-2: Central Station -> Rathaus -> Carl Station / Jurassic Park */}
-            <path
-              d="
-                M 530 458
-                L 440 490
-                L 388 490
-                L 388 412
-                L 388 300
-                L 388 216
-              "
-              fill="none"
-              stroke="#E11D48"
-              strokeWidth="5"
-              strokeDasharray="8 4"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeOpacity={baseLineOpacity + 0.1}
-            />
-
-            {/* IC-2 continuation: Rathaus -> Jurassic Park -> Carl's Hotel */}
-            <path
-              d="
-                M 440 490
-                L 295 490
-                L 295 585
-              "
-              fill="none"
-              stroke="#BE123C"
-              strokeWidth="5"
-              strokeDasharray="8 4"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeOpacity={baseLineOpacity + 0.1}
-            />
-
-            {/* IC-3 & IC-6: Central Station -> Camp Carl -> Gare du Nord */}
-            <path
-              d="
-                M 530 458
-                L 690 495
-                L 690 350
-                L 530 350
-              "
-              fill="none"
-              stroke="#9F1239"
-              strokeWidth="5"
-              strokeDasharray="8 4"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeOpacity={baseLineOpacity + 0.1}
-            />
-
-            {/* IC-6: Camp Carl -> Coral Bay */}
-            <path
-              d="
-                M 690 495
-                L 870 495
-              "
-              fill="none"
-              stroke="#C2410C"
-              strokeWidth="5"
-              strokeDasharray="8 4"
-              strokeLinecap="round"
-              strokeOpacity={baseLineOpacity + 0.1}
-            />
-
-            {/* IC-4 & IC-5: Gare du Nord -> Villen Viertel West -> Blue Lagoon / Willow Creek */}
-            <path
-              d="
-                M 530 350
-                L 530 120
-                L 388 120
-                L 388 82
-              "
-              fill="none"
-              stroke="#881337"
-              strokeWidth="5"
-              strokeDasharray="8 4"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeOpacity={baseLineOpacity + 0.1}
-            />
-
-            {/* IC-4 to Blue Lagoon */}
-            <path
-              d="
-                M 388 82
-                L 390 28
-              "
-              fill="none"
-              stroke="#881337"
-              strokeWidth="5"
-              strokeDasharray="8 4"
-              strokeLinecap="round"
-              strokeOpacity={baseLineOpacity + 0.1}
-            />
-
-            {/* IC-5 to Willow Creek */}
-            <path
-              d="
-                M 388 82
-                L 300 82
-              "
-              fill="none"
-              stroke="#B91C1C"
-              strokeWidth="5"
-              strokeDasharray="8 4"
-              strokeLinecap="round"
-              strokeOpacity={baseLineOpacity + 0.1}
-            />
-
-            {/* IC-7: City Center -> Mouwick */}
-            <path
-              d="
-                M 604 216
-                L 604 154
-              "
-              fill="none"
-              stroke="#475569"
-              strokeWidth="5"
-              strokeDasharray="8 4"
-              strokeLinecap="round"
-              strokeOpacity={baseLineOpacity + 0.1}
-            />
+            {/* 7. BLUE LINE (U-Blau / U5) - Daniel Tower ↔ Badesee ↔ Carl Station ↔ Airport Hotel ↔ Kellrods Airport ↔ Central Station */}
+            <g
+              id="line-group-U-Blau"
+              className="cursor-pointer"
+              onClick={(e) => handleLineClick(e, 'U-Blau')}
+            >
+              <path
+                d="
+                  M 346 335
+                  L 346 518
+                  L 346 568
+                  L 346 604
+                  L 405 604
+                  L 405 532
+                  L 455 532
+                "
+                fill="none"
+                stroke="transparent"
+                strokeWidth="24"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              <path
+                d="
+                  M 346 335
+                  L 346 518
+                  L 346 568
+                  L 346 604
+                  L 405 604
+                  L 405 532
+                  L 455 532
+                "
+                fill="none"
+                stroke={METRO_LINES['U-Blau'].color}
+                strokeWidth={isLineHighlighted('U-Blau') ? 8.5 : 6}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeOpacity={getLineOpacity('U-Blau')}
+                filter={isLineHighlighted('U-Blau') ? 'url(#routeGlow)' : undefined}
+                className="transition-all duration-300"
+              />
+            </g>
           </g>
         )}
 
+        {/* ----------------- INTER CITY TRAINS (IC-ZÜGE) LAYER (Gestreifte Linien) ----------------- */}
+        {(showICLayer || (activeRoute && activeRoute.linesUsed.some((l) => l.startsWith('IC') || ['U-Türkis', 'U-Pink', 'U-Dunkelblau', 'U-Hellblau', 'U-Violett'].includes(l))) || (clickedStation && clickedStation.lines.some((l) => l.startsWith('IC') || ['U-Türkis', 'U-Pink', 'U-Dunkelblau', 'U-Hellblau', 'U-Violett'].includes(l))) || (clickedLineId && (clickedLineId.startsWith('IC') || ['U-Türkis', 'U-Pink', 'U-Dunkelblau', 'U-Hellblau', 'U-Violett'].includes(clickedLineId)))) && (
+          <g id="ic-train-layer" className="transition-opacity duration-300">
+            {/* IC Nordwest: Blue Lagoon / Willow Creek ↔ Villen Viertel West ↔ Gare du Nord */}
+            <g
+              id="line-group-IC-Nordwest"
+              className="cursor-pointer"
+              onClick={(e) => handleLineClick(e, 'IC-Nordwest')}
+            >
+              <path
+                d="
+                  M 340 25
+                  L 340 175
+                  M 245 105
+                  L 340 105
+                  M 340 175
+                  L 340 182
+                  L 468 182
+                  L 468 438
+                  L 455 438
+                  L 455 445
+                "
+                fill="none"
+                stroke="transparent"
+                strokeWidth="24"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              <path
+                d="
+                  M 340 25
+                  L 340 175
+                  M 245 105
+                  L 340 105
+                  M 340 175
+                  L 340 182
+                  L 468 182
+                  L 468 438
+                  L 455 438
+                  L 455 445
+                "
+                fill="none"
+                stroke={theme === 'dark' ? '#CBD5E1' : '#18181B'}
+                strokeWidth={isLineHighlighted('IC-Nordwest') ? 8.5 : 7}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeOpacity={getLineOpacity('IC-Nordwest')}
+                filter={isLineHighlighted('IC-Nordwest') ? 'url(#routeGlow)' : undefined}
+              />
+              <path
+                d="
+                  M 340 25
+                  L 340 175
+                  M 245 105
+                  L 340 105
+                  M 340 175
+                  L 340 182
+                  L 468 182
+                  L 468 438
+                  L 455 438
+                  L 455 445
+                "
+                fill="none"
+                stroke={theme === 'dark' ? '#0F172A' : '#FFFFFF'}
+                strokeWidth="3.2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeOpacity={getLineOpacity('IC-Nordwest')}
+              />
+            </g>
+
+            {/* IC Stonebrook: Stonebrook ↔ Gare du Nord */}
+            <g
+              id="line-group-IC-Stonebrook"
+              className="cursor-pointer"
+              onClick={(e) => handleLineClick(e, 'IC-Stonebrook')}
+            >
+              <path
+                d="
+                  M 195 425
+                  L 440 425
+                  L 440 445
+                  L 455 445
+                "
+                fill="none"
+                stroke="transparent"
+                strokeWidth="24"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              <path
+                d="
+                  M 195 425
+                  L 440 425
+                  L 440 445
+                  L 455 445
+                "
+                fill="none"
+                stroke={theme === 'dark' ? '#CBD5E1' : '#18181B'}
+                strokeWidth={isLineHighlighted('IC-Stonebrook') ? 8.5 : 7}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeOpacity={getLineOpacity('IC-Stonebrook')}
+                filter={isLineHighlighted('IC-Stonebrook') ? 'url(#routeGlow)' : undefined}
+              />
+              <path
+                d="
+                  M 195 425
+                  L 440 425
+                  L 440 445
+                  L 455 445
+                "
+                fill="none"
+                stroke={theme === 'dark' ? '#0F172A' : '#FFFFFF'}
+                strokeWidth="3.2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeOpacity={getLineOpacity('IC-Stonebrook')}
+              />
+            </g>
+
+            {/* IC 8 / U-Pink: Gare du Nord ↔ Coral Bay */}
+            <g
+              id="line-group-U-Pink"
+              className="cursor-pointer"
+              onClick={(e) => handleLineClick(e, 'U-Pink')}
+            >
+              <path
+                d="
+                  M 455 445
+                  L 468 445
+                  L 468 428
+                  L 830 428
+                "
+                fill="none"
+                stroke="transparent"
+                strokeWidth="24"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              <path
+                d="
+                  M 455 445
+                  L 468 445
+                  L 468 428
+                  L 830 428
+                "
+                fill="none"
+                stroke={theme === 'dark' ? '#CBD5E1' : '#18181B'}
+                strokeWidth={isLineHighlighted('U-Pink') ? 8.5 : 6}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeOpacity={getLineOpacity('U-Pink')}
+                filter={isLineHighlighted('U-Pink') ? 'url(#routeGlow)' : undefined}
+              />
+              <path
+                d="
+                  M 455 445
+                  L 468 445
+                  L 468 428
+                  L 830 428
+                "
+                fill="none"
+                stroke="#EC4899"
+                strokeWidth="3.5"
+                strokeDasharray="6 4"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeOpacity={getLineOpacity('U-Pink')}
+              />
+            </g>
+
+            {/* IC 7 / U-Türkis: Gare du Nord ↔ Zoo ↔ Tinnifer Aquatic Center */}
+            <g
+              id="line-group-U-Türkis"
+              className="cursor-pointer"
+              onClick={(e) => handleLineClick(e, 'U-Türkis')}
+            >
+              <path
+                d="
+                  M 455 445
+                  L 485 445
+                  L 485 460
+                  L 635 460
+                  L 715 460
+                "
+                fill="none"
+                stroke="transparent"
+                strokeWidth="24"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              <path
+                d="
+                  M 455 445
+                  L 485 445
+                  L 485 460
+                  L 635 460
+                  L 715 460
+                "
+                fill="none"
+                stroke={theme === 'dark' ? '#CBD5E1' : '#18181B'}
+                strokeWidth={isLineHighlighted('U-Türkis') ? 8.5 : 6}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeOpacity={getLineOpacity('U-Türkis')}
+                filter={isLineHighlighted('U-Türkis') ? 'url(#routeGlow)' : undefined}
+              />
+              <path
+                d="
+                  M 455 445
+                  L 485 445
+                  L 485 460
+                  L 635 460
+                  L 715 460
+                "
+                fill="none"
+                stroke="#0F766E"
+                strokeWidth="3.5"
+                strokeDasharray="6 4"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeOpacity={getLineOpacity('U-Türkis')}
+              />
+            </g>
+
+            {/* IC Camp Carl Nord (Line 1): Gare du Nord ↔ Camp Carl */}
+            <g
+              id="line-group-IC-CampCarl-Nord"
+              className="cursor-pointer"
+              onClick={(e) => handleLineClick(e, 'IC-CampCarl-Nord')}
+            >
+              <path
+                d="
+                  M 455 448
+                  L 472 448
+                  L 472 510
+                  L 640 510
+                  L 640 515
+                "
+                fill="none"
+                stroke="transparent"
+                strokeWidth="24"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              <path
+                d="
+                  M 455 448
+                  L 472 448
+                  L 472 510
+                  L 640 510
+                  L 640 515
+                "
+                fill="none"
+                stroke={theme === 'dark' ? '#CBD5E1' : '#18181B'}
+                strokeWidth={isLineHighlighted('IC-CampCarl-Nord') ? 8.5 : 6}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeOpacity={getLineOpacity('IC-CampCarl-Nord')}
+                filter={isLineHighlighted('IC-CampCarl-Nord') ? 'url(#routeGlow)' : undefined}
+              />
+              <path
+                d="
+                  M 455 448
+                  L 472 448
+                  L 472 510
+                  L 640 510
+                  L 640 515
+                "
+                fill="none"
+                stroke="#EAB308"
+                strokeWidth="3.2"
+                strokeDasharray="6 4"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeOpacity={getLineOpacity('IC-CampCarl-Nord')}
+              />
+            </g>
+
+            {/* IC Camp Carl Central (Line 2): Central Station ↔ Camp Carl */}
+            <g
+              id="line-group-IC-CampCarl-Central"
+              className="cursor-pointer"
+              onClick={(e) => handleLineClick(e, 'IC-CampCarl-Central')}
+            >
+              <path
+                d="
+                  M 455 532
+                  L 480 532
+                  L 480 520
+                  L 640 520
+                  L 640 515
+                "
+                fill="none"
+                stroke="transparent"
+                strokeWidth="24"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              <path
+                d="
+                  M 455 532
+                  L 480 532
+                  L 480 520
+                  L 640 520
+                  L 640 515
+                "
+                fill="none"
+                stroke={theme === 'dark' ? '#CBD5E1' : '#18181B'}
+                strokeWidth={isLineHighlighted('IC-CampCarl-Central') ? 8.5 : 6}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeOpacity={getLineOpacity('IC-CampCarl-Central')}
+                filter={isLineHighlighted('IC-CampCarl-Central') ? 'url(#routeGlow)' : undefined}
+              />
+              <path
+                d="
+                  M 455 532
+                  L 480 532
+                  L 480 520
+                  L 640 520
+                  L 640 515
+                "
+                fill="none"
+                stroke="#CA8A04"
+                strokeWidth="3.2"
+                strokeDasharray="6 4"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeOpacity={getLineOpacity('IC-CampCarl-Central')}
+              />
+            </g>
+
+            {/* IC 10 / U-Dunkelblau: Central Station ↔ Rathaus ↔ Jurassic Park ↔ Carls Hotel */}
+            <g
+              id="line-group-U-Dunkelblau"
+              className="cursor-pointer"
+              onClick={(e) => handleLineClick(e, 'U-Dunkelblau')}
+            >
+              <path
+                d="
+                  M 455 532
+                  L 455 550
+                  L 195 550
+                  L 45 550
+                  L 45 608
+                "
+                fill="none"
+                stroke="transparent"
+                strokeWidth="24"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              <path
+                d="
+                  M 455 532
+                  L 455 550
+                  L 195 550
+                  L 45 550
+                  L 45 608
+                "
+                fill="none"
+                stroke={theme === 'dark' ? '#CBD5E1' : '#18181B'}
+                strokeWidth={isLineHighlighted('U-Dunkelblau') ? 8.5 : 6}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeOpacity={getLineOpacity('U-Dunkelblau')}
+                filter={isLineHighlighted('U-Dunkelblau') ? 'url(#routeGlow)' : undefined}
+              />
+              <path
+                d="
+                  M 455 532
+                  L 455 550
+                  L 195 550
+                  L 45 550
+                  L 45 608
+                "
+                fill="none"
+                stroke="#1D4ED8"
+                strokeWidth="3.5"
+                strokeDasharray="6 4"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeOpacity={getLineOpacity('U-Dunkelblau')}
+              />
+            </g>
+
+            {/* IC 11 / U-Hellblau: Gare du Nord ↔ Stadium (Retow) ↔ Retow (Terminus) */}
+            <g
+              id="line-group-U-Hellblau"
+              className="cursor-pointer"
+              onClick={(e) => handleLineClick(e, 'U-Hellblau')}
+            >
+              <path
+                d="
+                  M 455 445
+                  L 440 445
+                  L 440 465
+                  L 245 465
+                  L 245 624
+                  L 195 624
+                  L 110 624
+                  L 110 678
+                "
+                fill="none"
+                stroke="transparent"
+                strokeWidth="24"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              <path
+                d="
+                  M 455 445
+                  L 440 445
+                  L 440 465
+                  L 245 465
+                  L 245 624
+                  L 195 624
+                  L 110 624
+                  L 110 678
+                "
+                fill="none"
+                stroke={theme === 'dark' ? '#CBD5E1' : '#18181B'}
+                strokeWidth={isLineHighlighted('U-Hellblau') ? 8.5 : 6}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeOpacity={getLineOpacity('U-Hellblau')}
+                filter={isLineHighlighted('U-Hellblau') ? 'url(#routeGlow)' : undefined}
+              />
+              <path
+                d="
+                  M 455 445
+                  L 440 445
+                  L 440 465
+                  L 245 465
+                  L 245 624
+                  L 195 624
+                  L 110 624
+                  L 110 678
+                "
+                fill="none"
+                stroke="#06B6D4"
+                strokeWidth="3.5"
+                strokeDasharray="6 4"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeOpacity={getLineOpacity('U-Hellblau')}
+              />
+            </g>
+
+            {/* IC 12 / U-Violett: Retow (Terminus) ↔ Sonnenaufgangsstraße ↔ Central Station */}
+            <g
+              id="line-group-U-Violett"
+              className="cursor-pointer"
+              onClick={(e) => handleLineClick(e, 'U-Violett')}
+            >
+              <path
+                d="
+                  M 110 678
+                  L 195 678
+                  L 250 678
+                  L 250 576
+                  L 455 576
+                  L 455 532
+                "
+                fill="none"
+                stroke="transparent"
+                strokeWidth="24"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              <path
+                d="
+                  M 110 678
+                  L 195 678
+                  L 250 678
+                  L 250 576
+                  L 455 576
+                  L 455 532
+                "
+                fill="none"
+                stroke={theme === 'dark' ? '#CBD5E1' : '#18181B'}
+                strokeWidth={isLineHighlighted('U-Violett') ? 8.5 : 6}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeOpacity={getLineOpacity('U-Violett')}
+                filter={isLineHighlighted('U-Violett') ? 'url(#routeGlow)' : undefined}
+              />
+              <path
+                d="
+                  M 110 678
+                  L 195 678
+                  L 250 678
+                  L 250 576
+                  L 455 576
+                  L 455 532
+                "
+                fill="none"
+                stroke="#7C3AED"
+                strokeWidth="3.5"
+                strokeDasharray="6 4"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeOpacity={getLineOpacity('U-Violett')}
+              />
+            </g>
+          </g>
+        )}
+
+        {/* ----------------- IN PLANUNG / ZUKUNFT (Gestrichelte Linien) ----------------- */}
+        <g id="planned-lines-layer" className="transition-opacity duration-300">
+          {/* Plan-Traphgon-T3: Gare du Nord ↔ Traphgon Airport ↔ Terminal 3 / Fernbahnhof */}
+          <g
+            id="line-group-Plan-Traphgon-T3"
+            className="cursor-pointer"
+            onClick={(e) => handleLineClick(e, 'Plan-Traphgon-T3')}
+          >
+            <path
+              d="
+                M 455 445
+                L 470 445
+                L 470 452
+                L 842 452
+                L 842 642
+                L 830 642
+                M 842 642
+                L 905 642
+              "
+              fill="none"
+              stroke="transparent"
+              strokeWidth="24"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+            <path
+              d="
+                M 455 445
+                L 470 445
+                L 470 452
+                L 842 452
+                L 842 642
+                L 830 642
+                M 842 642
+                L 905 642
+              "
+              fill="none"
+              stroke={theme === 'dark' ? '#0F172A' : '#FFFFFF'}
+              strokeWidth="6"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeOpacity={getLineOpacity('Plan-Traphgon-T3')}
+            />
+            <path
+              d="
+                M 455 445
+                L 470 445
+                L 470 452
+                L 842 452
+                L 842 642
+                L 830 642
+                M 842 642
+                L 905 642
+              "
+              fill="none"
+              stroke={theme === 'dark' ? '#E2E8F0' : '#18181B'}
+              strokeWidth={isLineHighlighted('Plan-Traphgon-T3') ? 5 : 3.5}
+              strokeDasharray="6 6"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeOpacity={getLineOpacity('Plan-Traphgon-T3')}
+              filter={isLineHighlighted('Plan-Traphgon-T3') ? 'url(#routeGlow)' : undefined}
+            />
+          </g>
+        </g>
+
         {/* ----------------- ACTIVE JOURNEY HIGHLIGHT (ONLY THE TRAVELED PATH) ----------------- */}
-        {/* Requirement: "in the metro map, only highlight the active journey (not the entire lines)" */}
+        {/* Strictly follows the exact geometric lines as presented on the map (rectangular, zero diagonal shortcuts) */}
         {activeRoute && (
-          <g id="active-journey-highlight" filter="url(#routeGlow)">
+          <g id="active-journey-highlight">
             {activeRoute.legs.map((leg, legIdx) => {
               const line = METRO_LINES[leg.lineId];
-              const stationCoords = leg.stations.map((id) => STATIONS[id]).filter(Boolean);
-              if (stationCoords.length < 2) return null;
-
-              const pathD = stationCoords.reduce((acc, st, i) => {
-                return i === 0 ? `M ${st.x} ${st.y}` : `${acc} L ${st.x} ${st.y}`;
-              }, '');
+              const pathD = buildLegTrackPath(leg.lineId, leg.stations);
+              if (!pathD) return null;
 
               return (
                 <React.Fragment key={`active-leg-${legIdx}`}>
-                  {/* Thick glowing underlay in line color */}
+                  {/* Soft wide glowing halo in line color */}
                   <path
                     d={pathD}
                     fill="none"
                     stroke={line?.color || '#38BDF8'}
-                    strokeWidth="10"
+                    strokeWidth="14"
                     strokeLinecap="round"
                     strokeLinejoin="round"
-                    className="opacity-95"
+                    opacity="0.45"
+                    filter="url(#routeGlow)"
                   />
-                  {/* Crisp animated center stroke */}
+                  {/* Solid crisp underlay track in line color */}
+                  <path
+                    d={pathD}
+                    fill="none"
+                    stroke={line?.color || '#38BDF8'}
+                    strokeWidth="8"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    opacity="0.95"
+                  />
+                  {/* Crisp animated center stroke with GPU-accelerated smooth flow */}
                   <path
                     d={pathD}
                     fill="none"
                     stroke="#FFFFFF"
-                    strokeWidth="4"
+                    strokeWidth="3.5"
                     strokeLinecap="round"
                     strokeLinejoin="round"
-                    strokeDasharray="8 6"
-                    className="animate-train-flow"
+                    strokeDasharray="9 7"
+                    className="route-flow-line"
                   />
                 </React.Fragment>
               );
@@ -922,25 +1820,43 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
           const isHovered = hoveredStationId === station.id;
           const isClicked = clickedStationId === station.id;
 
-          const pillWidth = station.id === 'central-station' ? 26 : 22;
-          const pillHeight = station.id === 'central-station' ? 15 : 13;
+          const nodeOpacity = activeRoute
+            ? (isOnRoute ? 1 : 0.35)
+            : clickedLineId
+            ? (station.lines.includes(clickedLineId) ? 1 : 0.18)
+            : 1;
 
-          // Node styling based on journey participation
-          const nodeColor = isOrigin
-            ? '#10B981'
-            : isDest
-            ? '#EF4444'
-            : isStopover
-            ? '#38BDF8'
-            : isTransfer
-            ? '#F59E0B'
-            : isOnRoute
-            ? '#FFFFFF'
-            : theme === 'dark'
-            ? '#CBD5E1'
-            : '#64748B';
+          // Double-ring major interchange stations from IMG_8214
+          const isDoubleRingStation = [
+            'villen-viertel-west',
+            'north-end',
+            'daniel-tower',
+            'south-canal-quarter',
+            'city-center',
+            'gare-du-nord',
+            'central-station',
+            'camp-carl',
+            'coral-bay',
+            'traphgon-airp',
+            'traphgon-fern-t3',
+            'retow-terminus',
+          ].includes(station.id);
 
-          const nodeOpacity = activeRoute && !isOnRoute ? 0.35 : 1;
+          // Terminal perpendicular end-bar stations from IMG_8214
+          const isTerminalBarStation = [
+            'blue-lagoon',
+            'willow-creek',
+            'villen-viertel-nord',
+            'dog-care',
+            'mosslands-explorers',
+            'stonebrook',
+            'tinnifer-aquatic-center',
+            'stadium-retow',
+            'strand',
+          ].includes(station.id);
+
+          const isCarlsHotel = station.id === 'carls-hotel';
+          const isKuhlTown = station.id === 'kuhl-town';
 
           return (
             <g
@@ -951,8 +1867,8 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
               onMouseEnter={() => setHoveredStationId(station.id)}
               onMouseLeave={() => setHoveredStationId(null)}
             >
-              {/* Highlight Halo for Selected / Active Journey Nodes */}
-              {(isOrigin || isDest || isStopover || isTransfer || isClicked) && (
+              {/* Highlight Halo for Selected / Active Journey Nodes / Search Matches */}
+              {(isOrigin || isDest || isStopover || isClicked || isHovered || (searchQuery.trim().length > 1 && matchingStations.some((m) => m.id === station.id))) && (
                 <circle
                   cx={station.x}
                   cy={station.y}
@@ -964,6 +1880,8 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                       ? '#EF4444'
                       : isStopover
                       ? '#38BDF8'
+                      : isClicked
+                      ? '#38BDF8'
                       : '#F59E0B'
                   }
                   fillOpacity="0.3"
@@ -971,225 +1889,134 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                 />
               )}
 
-              {/* Station Geometric Marker */}
-              {station.isInterchange ? (
-                // Umsteigebahnhof / Hauptbahnhof: Pill / Rounded Capsule
-                <rect
-                  x={station.x - pillWidth / 2}
-                  y={station.y - pillHeight / 2}
-                  width={pillWidth}
-                  height={pillHeight}
-                  rx={pillHeight / 2}
-                  fill={nodeColor}
-                  stroke={isClicked ? '#38BDF8' : theme === 'dark' ? '#0F172A' : '#FFFFFF'}
-                  strokeWidth={isClicked ? 3 : 2}
-                  className="transition-transform group-hover:scale-110 shadow-md"
-                />
-              ) : (
-                // Regular Haltestelle: Circle
+              {/* Station Geometric Marker (matching IMG_8214 diagram) */}
+              {isCarlsHotel ? (
+                // Carls Hotel: Box with crossed diagonals 'X'
+                <g className="transition-transform group-hover:scale-125">
+                  <rect
+                    x={station.x - 7}
+                    y={station.y - 7}
+                    width={14}
+                    height={14}
+                    fill={theme === 'dark' ? '#0F172A' : '#FFFFFF'}
+                    stroke={theme === 'dark' ? '#E2E8F0' : '#000000'}
+                    strokeWidth={2}
+                    rx={1.5}
+                  />
+                  <line
+                    x1={station.x - 5}
+                    y1={station.y - 5}
+                    x2={station.x + 5}
+                    y2={station.y + 5}
+                    stroke={theme === 'dark' ? '#E2E8F0' : '#000000'}
+                    strokeWidth={1.8}
+                  />
+                  <line
+                    x1={station.x + 5}
+                    y1={station.y - 5}
+                    x2={station.x - 5}
+                    y2={station.y + 5}
+                    stroke={theme === 'dark' ? '#E2E8F0' : '#000000'}
+                    strokeWidth={1.8}
+                  />
+                </g>
+              ) : isKuhlTown ? (
+                // Kuhl Town: Solid black dot ●
                 <circle
                   cx={station.x}
                   cy={station.y}
-                  r={isOrigin || isDest || isStopover ? 8 : 5.5}
-                  fill={nodeColor}
-                  stroke={isClicked ? '#38BDF8' : theme === 'dark' ? '#0F172A' : '#FFFFFF'}
-                  strokeWidth={isClicked ? 3 : 2}
-                  className="transition-transform group-hover:scale-125 shadow-md"
+                  r={5.5}
+                  fill={theme === 'dark' ? '#E2E8F0' : '#000000'}
+                  stroke={theme === 'dark' ? '#0F172A' : '#FFFFFF'}
+                  strokeWidth={1.5}
+                  className="transition-transform group-hover:scale-125"
                 />
-              )}
-
-              {/* Center Dot for visual fidelity */}
-              <circle
-                cx={station.x}
-                cy={station.y}
-                r={2}
-                fill={isOrigin || isDest || isStopover ? '#FFFFFF' : '#1E293B'}
-              />
-
-              {/* ----------------- ICONS (SEPARATED FROM TEXT SO THEY NEVER OVERLAP) ----------------- */}
-              {/* ✈ Airport Icon */}
-              {station.hasAirport && (
-                <g
-                  transform={`translate(${
-                    station.labelPosition === 'left'
-                      ? station.x + 16
-                      : station.labelPosition === 'right'
-                      ? station.x - 16
-                      : station.x
-                  }, ${
-                    station.labelPosition === 'top'
-                      ? station.y + 16
-                      : station.labelPosition === 'bottom'
-                      ? station.y - 14
-                      : station.y + 1
-                  })`}
-                >
+              ) : isDoubleRingStation ? (
+                // Major Hubs: White circle with black outer ring
+                <g className="transition-transform group-hover:scale-125 shadow-md">
                   <circle
-                    r="7.5"
-                    fill="#0284C7"
-                    stroke="#FFFFFF"
-                    strokeWidth="1.2"
-                    className="shadow-sm"
+                    cx={station.x}
+                    cy={station.y}
+                    r={station.id === 'camp-carl' ? 8.5 : 7}
+                    fill={isOrigin ? '#10B981' : isDest ? '#EF4444' : theme === 'dark' ? '#0F172A' : '#FFFFFF'}
+                    stroke={theme === 'dark' ? '#F8FAFC' : '#000000'}
+                    strokeWidth={station.id === 'camp-carl' ? 3.5 : 2.5}
                   />
-                  <text
-                    x="0"
-                    y="3"
-                    textAnchor="middle"
-                    fontSize="9"
-                    fill="#FFFFFF"
-                    className="pointer-events-none select-none font-bold"
-                  >
-                    ✈
-                  </text>
+                  {station.id === 'camp-carl' && (
+                    <circle
+                      cx={station.x}
+                      cy={station.y}
+                      r={4.5}
+                      fill="none"
+                      stroke={theme === 'dark' ? '#F8FAFC' : '#000000'}
+                      strokeWidth={1.5}
+                    />
+                  )}
+                </g>
+              ) : isTerminalBarStation ? (
+                // End-of-line perpendicular terminal bar
+                <g className="transition-transform group-hover:scale-125">
+                  {station.id === 'blue-lagoon' && (
+                    <line x1={station.x - 10} y1={station.y} x2={station.x + 10} y2={station.y} stroke="#000000" strokeWidth="4" />
+                  )}
+                  {station.id === 'willow-creek' && (
+                    <line x1={station.x} y1={station.y - 9} x2={station.x} y2={station.y + 9} stroke="#000000" strokeWidth="4" />
+                  )}
+                  {station.id === 'villen-viertel-nord' && (
+                    <line x1={station.x} y1={station.y - 9} x2={station.x} y2={station.y + 9} stroke="#15803D" strokeWidth="4" />
+                  )}
+                  {station.id === 'dog-care' && (
+                    <line x1={station.x} y1={station.y - 9} x2={station.x} y2={station.y + 9} stroke="#9333EA" strokeWidth="4" />
+                  )}
+                  {station.id === 'mosslands-explorers' && (
+                    <line x1={station.x} y1={station.y - 9} x2={station.x} y2={station.y + 9} stroke="#DC2626" strokeWidth="4" />
+                  )}
+                  {station.id === 'stonebrook' && (
+                    <line x1={station.x} y1={station.y - 9} x2={station.x} y2={station.y + 9} stroke="#000000" strokeWidth="4" />
+                  )}
+                  {station.id === 'tinnifer-aquatic-center' && (
+                    <line x1={station.x} y1={station.y - 9} x2={station.x} y2={station.y + 9} stroke="#0F766E" strokeWidth="4" />
+                  )}
+                  {station.id === 'stadium-retow' && (
+                    <line x1={station.x - 9} y1={station.y} x2={station.x + 9} y2={station.y} stroke="#06B6D4" strokeWidth="4" />
+                  )}
+                  {station.id === 'strand' && (
+                    <line x1={station.x - 9} y1={station.y} x2={station.x + 9} y2={station.y} stroke="#15803D" strokeWidth="4" />
+                  )}
+                  {/* Subtle clickable hit circle */}
+                  <circle cx={station.x} cy={station.y} r={6} fill="transparent" />
+                </g>
+              ) : (
+                // Intermediate station ticks across track
+                <g className="transition-transform group-hover:scale-125">
+                  {['badesee', 'carl-station', 'airport-hotel', 'weisses-haus', 'arena', 'squishmallow-city', 'lake-road', 'place-de-la-geiger', 'south-canal-harbor', 'jurassic-park'].includes(station.id) ? (
+                    <line
+                      x1={station.x - 8}
+                      y1={station.y}
+                      x2={station.x + 8}
+                      y2={station.y}
+                      stroke={theme === 'dark' ? '#F8FAFC' : '#000000'}
+                      strokeWidth={2.8}
+                    />
+                  ) : (
+                    <line
+                      x1={station.x}
+                      y1={station.y - 8}
+                      x2={station.x}
+                      y2={station.y + 8}
+                      stroke={theme === 'dark' ? '#F8FAFC' : '#000000'}
+                      strokeWidth={2.8}
+                    />
+                  )}
+                  <circle cx={station.x} cy={station.y} r={6} fill="transparent" />
                 </g>
               )}
 
-              {/* 🚆 IC Train Icon */}
-              {station.hasIC && !station.isICOnly && (
-                <g
-                  transform={`translate(${
-                    station.labelPosition === 'left'
-                      ? station.x + (station.isInterchange ? 20 : 16)
-                      : station.labelPosition === 'right'
-                      ? station.x - (station.isInterchange ? 20 : 16)
-                      : station.x + 14
-                  }, ${
-                    station.labelPosition === 'bottom'
-                      ? station.y - 12
-                      : station.labelPosition === 'top'
-                      ? station.y + 14
-                      : station.y - 1
-                  })`}
-                >
-                  <rect
-                    x="-6"
-                    y="-6"
-                    width="12"
-                    height="12"
-                    rx="3"
-                    fill="#E11D48"
-                    stroke="#FFFFFF"
-                    strokeWidth="1"
-                    className="shadow-sm"
-                  />
-                  <text
-                    x="0"
-                    y="3"
-                    textAnchor="middle"
-                    fontSize="8.5"
-                    fill="#FFFFFF"
-                    className="pointer-events-none select-none"
-                  >
-                    🚆
-                  </text>
-                </g>
-              )}
-
-              {/* ⚙️ Transfer Required Icon (IC) */}
-              {station.hasICTransferRequired && (
-                <g
-                  transform={`translate(${
-                    station.labelPosition === 'left'
-                      ? station.x + 16
-                      : station.x - 16
-                  }, ${
-                    station.labelPosition === 'bottom'
-                      ? station.y - 12
-                      : station.labelPosition === 'top'
-                      ? station.y + 14
-                      : station.y
-                  })`}
-                >
-                  <text
-                    x="0"
-                    y="3"
-                    textAnchor="middle"
-                    fontSize="10"
-                    className="pointer-events-none select-none"
-                  >
-                    ⚙️
-                  </text>
-                </g>
-              )}
-
-              {/* ♿ Wheelchair Accessible Icon */}
-              {station.isAccessible && (
-                <g
-                  transform={`translate(${
-                    station.labelPosition === 'left'
-                      ? station.x + (station.hasIC ? 32 : 16)
-                      : station.labelPosition === 'right'
-                      ? station.x - (station.hasIC ? 32 : 16)
-                      : station.x - 16
-                  }, ${
-                    station.labelPosition === 'bottom'
-                      ? station.y - 12
-                      : station.labelPosition === 'top'
-                      ? station.y + 14
-                      : station.y - 1
-                  })`}
-                >
-                  <rect
-                    x="-5"
-                    y="-5"
-                    width="11"
-                    height="11"
-                    rx="2"
-                    fill="#10B981"
-                    stroke="#FFFFFF"
-                    strokeWidth="0.8"
-                    className="shadow-sm"
-                  />
-                  <text
-                    x="0.5"
-                    y="3.5"
-                    textAnchor="middle"
-                    fontSize="8"
-                    fill="#FFFFFF"
-                    className="pointer-events-none select-none"
-                  >
-                    ♿
-                  </text>
-                </g>
-              )}
-
-              {/* (T) Tim Train Icon */}
-              {station.isTimTrain && (
-                <g
-                  transform={`translate(${
-                    station.labelPosition === 'bottom'
-                      ? station.x
-                      : station.labelPosition === 'top'
-                      ? station.x + 16
-                      : station.x
-                  }, ${
-                    station.labelPosition === 'bottom'
-                      ? station.y - 14
-                      : station.labelPosition === 'top'
-                      ? station.y
-                      : station.y - 14
-                  })`}
-                >
-                  <circle
-                    cx="0"
-                    cy="0"
-                    r="6"
-                    fill="#8B5CF6"
-                    stroke="#FFFFFF"
-                    strokeWidth="1.2"
-                    className="shadow-sm"
-                  />
-                  <text
-                    x="0"
-                    y="3"
-                    textAnchor="middle"
-                    fontSize="7.5"
-                    fontWeight="bold"
-                    fill="#FFFFFF"
-                    className="pointer-events-none select-none"
-                  >
-                    T
-                  </text>
+              {/* Gare du Nord Train Icon Badge next to label */}
+              {station.id === 'gare-du-nord' && (
+                <g transform={`translate(${station.x + 28}, ${station.y - 17})`}>
+                  <rect x="-6" y="-5.5" width="12" height="11" rx="2" fill="#0284C7" />
+                  <text x="0" y="3" textAnchor="middle" fontSize="7.5" fill="#FFFFFF">🚆</text>
                 </g>
               )}
 
@@ -1197,17 +2024,17 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
               <text
                 x={
                   station.labelPosition === 'left'
-                    ? station.x - (station.isInterchange ? 18 : 14)
+                    ? station.x - (isDoubleRingStation ? 12 : 9)
                     : station.labelPosition === 'right'
-                    ? station.x + (station.isInterchange ? 18 : 14)
+                    ? station.x + (isDoubleRingStation ? 12 : 9)
                     : station.x
                 }
                 y={
                   station.labelPosition === 'top'
-                    ? station.y - (station.isInterchange ? 16 : 13)
+                    ? station.y - (isDoubleRingStation ? 12 : 9)
                     : station.labelPosition === 'bottom'
-                    ? station.y + (station.isInterchange ? 20 : 17)
-                    : station.y + 4
+                    ? station.y + (isDoubleRingStation ? 18 : 15)
+                    : station.y + 3.5
                 }
                 textAnchor={
                   station.labelPosition === 'left'
@@ -1216,8 +2043,8 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                     ? 'start'
                     : 'middle'
                 }
-                fontSize={station.isInterchange || isOrigin || isDest || isStopover ? '10' : '9'}
-                fontWeight={station.isInterchange || isOrigin || isDest || isStopover ? '700' : '600'}
+                fontSize={isDoubleRingStation || isOrigin || isDest || isStopover ? '10' : '9'}
+                fontWeight={isDoubleRingStation || isOrigin || isDest || isStopover ? '700' : '600'}
                 fill={
                   isOrigin
                     ? '#10B981'
@@ -1226,7 +2053,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                     : isStopover
                     ? '#38BDF8'
                     : isTransfer
-                    ? '#F59E0B'
+                    ? '#0284C7'
                     : isClicked || isHovered
                     ? '#38BDF8'
                     : isOnRoute
@@ -1349,9 +2176,25 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                 <Compass className="w-3.5 h-3.5 text-blue-500" />
                 <span>{t.tripSummary}</span>
               </span>
-              <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950 px-2 py-0.5 rounded-full">
-                ~{activeRoute.totalDurationMinutes} {t.min}
-              </span>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950 px-2 py-0.5 rounded-full">
+                  ~{activeRoute.totalDurationMinutes} {t.min}
+                </span>
+                {onResetRoute && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      haptic.light();
+                      onResetRoute();
+                    }}
+                    className="p-1 rounded-full text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+                    title={language === 'de' ? 'Route schließen / zurücksetzen' : 'Close / reset route'}
+                    aria-label={language === 'de' ? 'Route schließen' : 'Close route'}
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
             </div>
 
             <div className="text-xs font-semibold text-slate-900 dark:text-white flex items-center gap-1.5 truncate">
@@ -1393,20 +2236,37 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
               </div>
             )}
 
-            {onNavigateToPlanner && (
-              <motion.button
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.96 }}
-                onClick={() => {
-                  haptic.medium();
-                  onNavigateToPlanner();
-                }}
-                className="w-full mt-1 py-1.5 px-3 rounded-xl bg-blue-600 hover:bg-blue-700 active:scale-95 text-white text-[11px] font-bold shadow-md shadow-blue-600/20 flex items-center justify-center gap-1.5 transition"
-              >
-                <span>{t.viewInTripPlanner}</span>
-                <ArrowRight className="w-3.5 h-3.5" />
-              </motion.button>
-            )}
+            <div className="flex items-center gap-2 pt-1">
+              {onNavigateToPlanner && (
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.96 }}
+                  onClick={() => {
+                    haptic.medium();
+                    onNavigateToPlanner();
+                  }}
+                  className="flex-1 py-1.5 px-3 rounded-xl bg-blue-600 hover:bg-blue-700 active:scale-95 text-white text-[11px] font-bold shadow-md shadow-blue-600/20 flex items-center justify-center gap-1.5 transition"
+                >
+                  <span>{t.viewInTripPlanner}</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </motion.button>
+              )}
+              {onResetRoute && (
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.96 }}
+                  onClick={() => {
+                    haptic.light();
+                    onResetRoute();
+                  }}
+                  className="py-1.5 px-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-[11px] font-semibold flex items-center justify-center gap-1 transition shrink-0"
+                  title={language === 'de' ? 'Geplante Reise verwerfen' : 'Reset planned trip'}
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  <span>{language === 'de' ? 'Zurücksetzen' : 'Reset'}</span>
+                </motion.button>
+              )}
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -1552,14 +2412,26 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
       <AnimatePresence>
         {selectedDisruption && (
           <motion.div
+            drag
+            dragConstraints={containerRef}
+            dragElastic={0.08}
+            dragMomentum={false}
             initial={{ y: 40, opacity: 0, scale: 0.96 }}
             animate={{ y: 0, opacity: 1, scale: 1 }}
             exit={{ y: 40, opacity: 0, scale: 0.96 }}
             transition={{ type: 'spring', stiffness: 420, damping: 32 }}
-            className="absolute bottom-22 sm:bottom-24 md:bottom-4 left-3 right-3 md:left-auto md:right-4 md:w-96 max-h-[calc(100%-6.5rem)] overflow-y-auto z-45 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl border-2 border-amber-500/70 dark:border-amber-500/60 rounded-3xl p-4 shadow-2xl space-y-3"
+            className="absolute bottom-22 sm:bottom-24 md:bottom-4 right-3 sm:right-4 w-[calc(100%-1.5rem)] sm:w-96 max-w-sm sm:max-w-md max-h-[calc(100%-6.5rem)] overflow-y-auto z-45 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl border-2 border-amber-500/70 dark:border-amber-500/60 rounded-3xl p-4 shadow-2xl space-y-3 cursor-default"
             onClick={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+            onTouchStart={(e) => e.stopPropagation()}
           >
-            <div className="flex items-start justify-between">
+            {/* iOS-style Drag Handle Bar */}
+            <div className="flex items-center justify-center -mt-1 -mb-1 pt-0.5 pb-2 cursor-grab active:cursor-grabbing touch-none select-none">
+              <div className="w-10 h-1.5 rounded-full bg-slate-300 dark:bg-slate-600 hover:bg-slate-400 dark:hover:bg-slate-500 transition-colors" />
+            </div>
+
+            <div className="flex items-start justify-between cursor-grab active:cursor-grabbing select-none">
               <div className="flex items-center gap-2">
                 <div className="p-2 rounded-2xl bg-amber-500 text-white shrink-0 shadow-md shadow-amber-500/30">
                   <AlertTriangle className="w-4 h-4" />
@@ -1712,14 +2584,26 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
       <AnimatePresence>
         {clickedStation && (
           <motion.div
+            drag
+            dragConstraints={containerRef}
+            dragElastic={0.08}
+            dragMomentum={false}
             initial={{ y: 40, opacity: 0, scale: 0.96 }}
             animate={{ y: 0, opacity: 1, scale: 1 }}
             exit={{ y: 40, opacity: 0, scale: 0.96 }}
             transition={{ type: 'spring', stiffness: 420, damping: 32 }}
-            className="absolute bottom-22 sm:bottom-24 md:bottom-4 left-3 right-3 md:left-auto md:right-4 md:w-84 max-h-[calc(100%-6.5rem)] overflow-y-auto z-45 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl border border-slate-200 dark:border-slate-700/80 rounded-3xl p-4 shadow-2xl"
+            className="absolute bottom-22 sm:bottom-24 md:bottom-4 right-3 sm:right-4 w-[calc(100%-1.5rem)] sm:w-84 max-w-sm max-h-[calc(100%-6.5rem)] overflow-y-auto z-45 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl border border-slate-200 dark:border-slate-700/80 rounded-3xl p-4 shadow-2xl space-y-2.5 cursor-default"
             onClick={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+            onTouchStart={(e) => e.stopPropagation()}
           >
-            <div className="flex items-start justify-between">
+            {/* iOS-style Drag Handle Bar */}
+            <div className="flex items-center justify-center -mt-1 -mb-1 pt-0.5 pb-2 cursor-grab active:cursor-grabbing touch-none select-none">
+              <div className="w-10 h-1.5 rounded-full bg-slate-300 dark:bg-slate-600 hover:bg-slate-400 dark:hover:bg-slate-500 transition-colors" />
+            </div>
+
+            <div className="flex items-start justify-between cursor-grab active:cursor-grabbing select-none">
               <div>
                 <div className="flex items-center gap-1.5 flex-wrap mb-1">
                   {clickedStation.lines.map((lId) => (
@@ -1750,60 +2634,89 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                 <h3 className="text-base font-bold text-slate-900 dark:text-white">
                   {clickedStation.name}
                 </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 line-clamp-2">
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 line-clamp-2 select-text">
                   {clickedStation.description}
                 </p>
+                {clickedStation.id === 'jurassic-park' && (
+                  <div className="mt-2 p-2 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-[10px] text-amber-800 dark:text-amber-300 font-medium flex items-center gap-1.5">
+                    <Train className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                    <span>
+                      {language === 'de'
+                        ? 'Wichtig: Bei Durchfahrt auf IC 10 ist ein Zugwechsel erforderlich (gleiche Linie).'
+                        : 'Notice: Change of trains required when passing through on IC 10 (same line).'}
+                    </span>
+                  </div>
+                )}
               </div>
               <button
                 onClick={() => {
                   haptic.light();
                   setClickedStationId(null);
                 }}
-                className="text-slate-400 hover:text-slate-600 dark:hover:text-white p-1"
+                onPointerDown={(e) => e.stopPropagation()}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-white p-1 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+                title={language === 'de' ? 'Schließen' : 'Close'}
+                aria-label="Close"
               >
-                ×
+                <X className="w-4 h-4" />
               </button>
             </div>
 
             {routePlanningEnabled ? (
-              <div className="grid grid-cols-3 gap-1.5 mt-4 pt-3 border-t border-slate-200 dark:border-slate-800">
-                <button
-                  onClick={() => {
-                    haptic.medium();
-                    onSetOrigin(clickedStation.id);
-                    setClickedStationId(null);
-                  }}
-                  className="flex flex-col items-center justify-center gap-1 py-2 px-1 rounded-xl bg-emerald-600/10 hover:bg-emerald-600/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-[11px] font-semibold transition active:scale-95"
-                >
-                  <MapPin className="w-3.5 h-3.5" />
-                  <span>{t.startHere}</span>
-                </button>
-
-                {onSetStopover && (
+              <div className="mt-4 pt-3 border-t border-slate-200 dark:border-slate-800 space-y-2">
+                <div className="grid grid-cols-3 gap-1.5">
                   <button
                     onClick={() => {
                       haptic.medium();
-                      onSetStopover(clickedStation.id);
+                      onSetOrigin(clickedStation.id);
                       setClickedStationId(null);
                     }}
-                    className="flex flex-col items-center justify-center gap-1 py-2 px-1 rounded-xl bg-blue-600/10 hover:bg-blue-600/20 text-blue-600 dark:text-blue-400 border border-blue-500/20 text-[11px] font-semibold transition active:scale-95"
+                    className="flex flex-col items-center justify-center gap-1 py-2 px-1 rounded-xl bg-emerald-600/10 hover:bg-emerald-600/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-[11px] font-semibold transition active:scale-95"
                   >
-                    <PlusCircle className="w-3.5 h-3.5" />
-                    <span>{t.stopover}</span>
+                    <MapPin className="w-3.5 h-3.5" />
+                    <span>{t.startHere}</span>
+                  </button>
+
+                  {onSetStopover && (
+                    <button
+                      onClick={() => {
+                        haptic.medium();
+                        onSetStopover(clickedStation.id);
+                        setClickedStationId(null);
+                      }}
+                      className="flex flex-col items-center justify-center gap-1 py-2 px-1 rounded-xl bg-blue-600/10 hover:bg-blue-600/20 text-blue-600 dark:text-blue-400 border border-blue-500/20 text-[11px] font-semibold transition active:scale-95"
+                    >
+                      <PlusCircle className="w-3.5 h-3.5" />
+                      <span>{t.stopover}</span>
+                    </button>
+                  )}
+
+                  <button
+                    onClick={() => {
+                      haptic.medium();
+                      onSetDestination(clickedStation.id);
+                      setClickedStationId(null);
+                    }}
+                    className="flex flex-col items-center justify-center gap-1 py-2 px-1 rounded-xl bg-rose-600/10 hover:bg-rose-600/20 text-rose-600 dark:text-rose-400 border border-rose-500/20 text-[11px] font-semibold transition active:scale-95"
+                  >
+                    <ArrowRight className="w-3.5 h-3.5" />
+                    <span>{t.setAsDestination}</span>
+                  </button>
+                </div>
+
+                {activeRoute && onResetRoute && (
+                  <button
+                    onClick={() => {
+                      haptic.light();
+                      onResetRoute();
+                      setClickedStationId(null);
+                    }}
+                    className="w-full py-1.5 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold flex items-center justify-center gap-1.5 transition"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5 text-rose-500" />
+                    <span>{language === 'de' ? 'Aktive Verbindung zurücksetzen' : 'Reset active route'}</span>
                   </button>
                 )}
-
-                <button
-                  onClick={() => {
-                    haptic.medium();
-                    onSetDestination(clickedStation.id);
-                    setClickedStationId(null);
-                  }}
-                  className="flex flex-col items-center justify-center gap-1 py-2 px-1 rounded-xl bg-rose-600/10 hover:bg-rose-600/20 text-rose-600 dark:text-rose-400 border border-rose-500/20 text-[11px] font-semibold transition active:scale-95"
-                >
-                  <ArrowRight className="w-3.5 h-3.5" />
-                  <span>{t.setAsDestination}</span>
-                </button>
               </div>
             ) : (
               <div className="mt-3 pt-2.5 border-t border-slate-200 dark:border-slate-800 text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
@@ -1811,6 +2724,159 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                 <span>{t.mapStationInfoOnly}</span>
               </div>
             )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Selected Line Information Bottom Sheet / Card on Map */}
+      <AnimatePresence>
+        {clickedLine && (
+          <motion.div
+            drag
+            dragConstraints={containerRef}
+            dragElastic={0.08}
+            dragMomentum={false}
+            initial={{ y: 40, opacity: 0, scale: 0.96 }}
+            animate={{ y: 0, opacity: 1, scale: 1 }}
+            exit={{ y: 40, opacity: 0, scale: 0.96 }}
+            transition={{ type: 'spring', stiffness: 420, damping: 32 }}
+            className="absolute bottom-22 sm:bottom-24 md:bottom-4 right-3 sm:right-4 w-[calc(100%-1.5rem)] sm:w-96 max-w-sm sm:max-w-md max-h-[calc(100%-6.5rem)] overflow-y-auto z-45 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl border border-slate-200 dark:border-slate-700/80 rounded-3xl p-4 shadow-2xl space-y-3 cursor-default"
+            onClick={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+            onTouchStart={(e) => e.stopPropagation()}
+          >
+            {/* iOS-style Drag Handle Bar */}
+            <div className="flex items-center justify-center -mt-1 -mb-1 pt-0.5 pb-2 cursor-grab active:cursor-grabbing touch-none select-none">
+              <div className="w-10 h-1.5 rounded-full bg-slate-300 dark:bg-slate-600 hover:bg-slate-400 dark:hover:bg-slate-500 transition-colors" />
+            </div>
+
+            <div className="flex items-start justify-between cursor-grab active:cursor-grabbing select-none">
+              <div className="flex items-center gap-2.5">
+                <span
+                  className="px-2.5 py-1 rounded-xl text-xs font-black shadow-xs tracking-wider shrink-0"
+                  style={{
+                    backgroundColor: clickedLine.color,
+                    color: clickedLine.textColor || '#FFFFFF',
+                  }}
+                >
+                  {clickedLine.badge}
+                </span>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white leading-tight">
+                    {clickedLine.name}
+                  </h3>
+                  <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 flex items-center gap-1 mt-0.5">
+                    {clickedLine.networkType === 'ic'
+                      ? '🚆 InterCity Express (IC)'
+                      : clickedLine.id === 'Tim-Train'
+                      ? '⭐ Sonderzug (Tim Train)'
+                      : clickedLine.networkType === 'planned'
+                      ? '🕒 In Planung (Zukunft)'
+                      : '🚇 U-Bahn Linie'}
+                  </span>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  haptic.light();
+                  setClickedLineId(null);
+                }}
+                onPointerDown={(e) => e.stopPropagation()}
+                className="text-slate-400 hover:text-slate-700 dark:hover:text-white p-1 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+                title={language === 'de' ? 'Linien-Info schließen' : 'Close line info'}
+                aria-label="Close"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Terminals & Frequency */}
+            <div className="flex items-center justify-between text-xs py-2 px-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-1.5 text-slate-700 dark:text-slate-300 font-semibold truncate min-w-0">
+                <span className="text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-wider shrink-0">
+                  {language === 'de' ? 'Strecke:' : 'Route:'}
+                </span>
+                <span className="truncate">{clickedLine.terminals.join(' ↔ ')}</span>
+              </div>
+              {clickedLine.frequencyMinutes && (
+                <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950 px-2 py-0.5 rounded-full shrink-0 ml-2">
+                  ⏱ {language === 'de' ? `Alle ${clickedLine.frequencyMinutes} Min.` : `Every ${clickedLine.frequencyMinutes} min`}
+                </span>
+              )}
+            </div>
+
+            {/* Detailed Line Description */}
+            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed select-text">
+              {clickedLine.description}
+            </p>
+
+            {/* Served Stations List */}
+            <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                  {language === 'de' ? `Haltestellen (${clickedLine.stations.length})` : `Stations (${clickedLine.stations.length})`}
+                </span>
+                <span className="text-[9px] text-slate-400 dark:text-slate-500">
+                  {language === 'de' ? 'Tippen zum Fokussieren' : 'Tap to focus'}
+                </span>
+              </div>
+              <div
+                className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto pr-1 touch-pan-y"
+                onPointerDown={(e) => e.stopPropagation()}
+                onTouchStart={(e) => e.stopPropagation()}
+              >
+                {clickedLine.stations.map((stId, sIdx) => {
+                  const st = STATIONS[stId];
+                  if (!st) return null;
+                  return (
+                    <button
+                      key={stId}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        haptic.selection();
+                        setClickedStationId(stId);
+                        onSelectStation(stId);
+                      }}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-100 hover:bg-blue-50 dark:bg-slate-800 dark:hover:bg-blue-950/40 text-slate-700 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 text-[11px] font-medium border border-transparent hover:border-blue-200 dark:hover:border-blue-800 transition active:scale-95"
+                    >
+                      <span className="text-[9px] text-slate-400 font-bold">{sIdx + 1}.</span>
+                      <span>{st.name}</span>
+                      {st.hasAirport && <span className="text-[9px]">✈</span>}
+                      {st.hasIC && <span className="text-[9px]">🚆</span>}
+                      {st.isAccessible && <span className="text-[9px]">♿</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Quick Actions Footer */}
+            <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center gap-2">
+              <button
+                onClick={() => {
+                  haptic.light();
+                  setClickedLineId(null);
+                }}
+                onPointerDown={(e) => e.stopPropagation()}
+                className="flex-1 py-1.5 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold flex items-center justify-center gap-1.5 transition active:scale-95"
+              >
+                <span>{language === 'de' ? 'Hervorhebung aufheben' : 'Clear highlight'}</span>
+              </button>
+              {onSelectLineFilter && (
+                <button
+                  onClick={() => {
+                    haptic.medium();
+                    onSelectLineFilter(clickedLine.id);
+                  }}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  className="py-1.5 px-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold transition active:scale-95 shadow-xs"
+                >
+                  {language === 'de' ? 'Linie filtern' : 'Filter line'}
+                </button>
+              )}
+            </div>
           </motion.div>
         )}
       </AnimatePresence>

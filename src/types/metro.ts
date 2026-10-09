@@ -1,8 +1,36 @@
-export type MetroLineId = 'U-Grün' | 'U-Rot' | 'U-Schwarz' | 'U-Orange' | 'U-Blau' | 'Tim-Train';
-export type ICLineId = 'IC-1' | 'IC-2' | 'IC-3' | 'IC-4' | 'IC-5' | 'IC-6' | 'IC-7';
-export type LineId = MetroLineId | ICLineId;
+export type MetroLineId =
+  | 'U-Grün'
+  | 'U-Rot'
+  | 'U-Schwarz'
+  | 'U-Orange'
+  | 'U-Blau'
+  | 'U-Hellgrün'
+  | 'U-Türkis'
+  | 'U-Pink'
+  | 'U-Gelb'
+  | 'U-Hellblau'
+  | 'U-Dunkelblau'
+  | 'U-Violett'
+  | 'Tim-Train';
 
-export type LineNetworkType = 'metro' | 'ic';
+export type ICLineId =
+  | 'IC-1'
+  | 'IC-2'
+  | 'IC-3'
+  | 'IC-4'
+  | 'IC-5'
+  | 'IC-6'
+  | 'IC-7'
+  | 'IC-Stonebrook'
+  | 'IC-Nordwest'
+  | 'IC-Ost'
+  | 'IC-Südwest';
+
+export type PlannedLineId = 'Plan-Traphgon-T3';
+
+export type LineId = MetroLineId | ICLineId | PlannedLineId | string;
+
+export type LineNetworkType = 'metro' | 'ic' | 'planned';
 
 export interface LineInfo {
   id: LineId;
