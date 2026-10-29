@@ -41,6 +41,11 @@ import { StartupDisruptionModal } from './components/StartupDisruptionModal';
 import { ReportDisruptionModal } from './components/ReportDisruptionModal';
 import { AppTab } from './components/TabBar';
 import { Article } from './types/article';
+import { IOSHeader } from './components/ios/IOSHeader';
+import { IOSHomePage } from './components/ios/IOSHomePage';
+import { IOSTripPlanner } from './components/ios/IOSTripPlanner';
+import { IOSLineDirectory } from './components/ios/IOSLineDirectory';
+import { IOSSettingsView } from './components/ios/IOSSettingsView';
 import {
   fetchArticles,
   publishArticleToServer,
@@ -50,10 +55,38 @@ import {
   subscribeToArticles,
 } from './services/articlesService';
 import { haptic } from './utils/haptics';
-import { BookmarkCheck, Train, TrainFront, ChevronUp, ChevronDown } from 'lucide-react';
+import { BookmarkCheck, Train, TrainFront, ChevronUp, ChevronDown, Sparkles, X } from 'lucide-react';
+import { CURRENT_VERSION } from './data/versionHistory';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<AppTab>('home');
+
+  // First-launch update notification banner
+  const [showUpdateNotification, setShowUpdateNotification] = useState<boolean>(() => {
+    try {
+      const lastSeen = localStorage.getItem('metroflow_last_seen_version');
+      return lastSeen !== CURRENT_VERSION;
+    } catch {
+      return false;
+    }
+  });
+  const [openVersionHistoryFromBanner, setOpenVersionHistoryFromBanner] = useState(false);
+
+  const handleDismissUpdateNotification = () => {
+    try {
+      localStorage.setItem('metroflow_last_seen_version', CURRENT_VERSION);
+    } catch {}
+    setShowUpdateNotification(false);
+  };
+
+  const handleViewVersionHistoryFromNotification = () => {
+    try {
+      localStorage.setItem('metroflow_last_seen_version', CURRENT_VERSION);
+    } catch {}
+    setShowUpdateNotification(false);
+    setOpenVersionHistoryFromBanner(true);
+    setActiveTab('options');
+  };
 
   // Admin verification state (unlocked via passcode "abc123")
   const [isAdmin, setIsAdmin] = useState<boolean>(() => {
@@ -187,6 +220,39 @@ export default function App() {
     } catch {}
   };
 
+  // UI Design Theme: 'default' (classic MetroFlow), 'ios' (iOS-inspired), or 'minecraft' (Minecraft pixel theme)
+  const [uiTheme, setUiTheme] = useState<'default' | 'ios' | 'minecraft'>(() => {
+    try {
+      const adminSaved = localStorage.getItem('metroflow_is_admin') === 'true';
+      // When opening the app the first time or if not admin, default UI is original ('default')
+      if (!adminSaved) {
+        return 'default';
+      }
+      // Only when in admin mode and having switched the UI before closing the app:
+      const saved = localStorage.getItem('metroflow_ui_theme');
+      if (saved === 'ios' || saved === 'minecraft' || saved === 'default') {
+        return saved;
+      }
+      return 'default';
+    } catch {
+      return 'default';
+    }
+  });
+
+  const handleSetUiTheme = (themeMode: 'default' | 'ios' | 'minecraft') => {
+    setUiTheme(themeMode);
+    try {
+      localStorage.setItem('metroflow_ui_theme', themeMode);
+    } catch {}
+    // If switching to iOS theme, default to the iOS menu bar if not explicitly set
+    if (themeMode === 'ios') {
+      const savedBar = localStorage.getItem('metroflow_tab_bar_style');
+      if (!savedBar) {
+        setTabBarStyle('ios26');
+      }
+    }
+  };
+
   // Station route selection: empty by default when opening app (no stations preselected)
   const [originId, setOriginId] = useState<string | null>(null);
   const [stopoverId, setStopoverId] = useState<string | null>(null);
@@ -218,9 +284,23 @@ export default function App() {
 
   // Disruptions live state (persisted locally and synced with server)
   const [disruptions, setDisruptions] = useState<Disruption[]>(getLocalCachedDisruptions);
-  const [avoidDisruptions, setAvoidDisruptions] = useState<boolean>(false);
+  const [avoidDisruptions, setAvoidDisruptions] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('metroflow_avoid_disruptions');
+      return saved !== null ? saved === 'true' : true;
+    } catch {
+      return true;
+    }
+  });
   const [userConfirmedIds, setUserConfirmedIds] = useState<string[]>(getUserConfirmedIds);
   const [userResolvedIds, setUserResolvedIds] = useState<string[]>(getUserResolvedIds);
+
+  const handleToggleAvoidDisruptions = (avoid: boolean) => {
+    setAvoidDisruptions(avoid);
+    try {
+      localStorage.setItem('metroflow_avoid_disruptions', String(avoid));
+    } catch {}
+  };
 
   // Network layer toggles on map
   const [showMetroLayer, setShowMetroLayer] = useState<boolean>(() => {
@@ -382,10 +462,15 @@ export default function App() {
   // Fetch disruptions and set up real-time listener + polling interval (every 6s) to sync live reports
   useEffect(() => {
     let isMounted = true;
+    const areDisruptionsEqual = (a: Disruption[], b: Disruption[]) => {
+      if (a.length !== b.length) return false;
+      return JSON.stringify(a) === JSON.stringify(b);
+    };
+
     const syncDisruptions = async () => {
       const data = await fetchDisruptions();
       if (isMounted) {
-        setDisruptions(data);
+        setDisruptions((prev) => (areDisruptionsEqual(prev, data) ? prev : data));
         setUserConfirmedIds(getUserConfirmedIds());
         setUserResolvedIds(getUserResolvedIds());
       }
@@ -395,13 +480,13 @@ export default function App() {
 
     const unsubscribe = subscribeToDisruptions((liveDisruptions) => {
       if (isMounted) {
-        setDisruptions(liveDisruptions);
+        setDisruptions((prev) => (areDisruptionsEqual(prev, liveDisruptions) ? prev : liveDisruptions));
         setUserConfirmedIds(getUserConfirmedIds());
         setUserResolvedIds(getUserResolvedIds());
       }
     });
 
-    const interval = setInterval(syncDisruptions, 6000);
+    const interval = setInterval(syncDisruptions, 15000);
     return () => {
       isMounted = false;
       unsubscribe();
@@ -486,14 +571,13 @@ export default function App() {
   const handleSetOrigin = (stId: string | null) => {
     haptic.light();
     setOriginId(stId);
-    setAvoidDisruptions(false);
     if (stId && destinationId && stId !== destinationId) {
       const calculated = findRoutesWithStopover(
         stId,
         stopoverId,
         destinationId,
         preference,
-        [],
+        avoidDisruptions ? disruptions : [],
         disruptions
       );
       setRoutes(calculated);
@@ -508,14 +592,13 @@ export default function App() {
   const handleSetDestination = (stId: string | null) => {
     haptic.light();
     setDestinationId(stId);
-    setAvoidDisruptions(false);
     if (originId && stId && originId !== stId) {
       const calculated = findRoutesWithStopover(
         originId,
         stopoverId,
         stId,
         preference,
-        [],
+        avoidDisruptions ? disruptions : [],
         disruptions
       );
       setRoutes(calculated);
@@ -550,14 +633,13 @@ export default function App() {
   const handleSetStopover = (stId: string | null) => {
     haptic.light();
     setStopoverId(stId);
-    setAvoidDisruptions(false);
     if (originId && destinationId && originId !== destinationId) {
       const calculated = findRoutesWithStopover(
         originId,
         stId,
         destinationId,
         preference,
-        [],
+        avoidDisruptions ? disruptions : [],
         disruptions
       );
       setRoutes(calculated);
@@ -579,7 +661,7 @@ export default function App() {
         stopoverId,
         temp,
         preference,
-        [],
+        avoidDisruptions ? disruptions : [],
         disruptions
       );
       setRoutes(calculated);
@@ -630,7 +712,6 @@ export default function App() {
     setOriginId(recent.originId);
     setStopoverId(recent.stopoverId || null);
     setDestinationId(recent.destinationId);
-    setAvoidDisruptions(false);
     setActiveTab('plan');
 
     // Calculate directly for restored recent route
@@ -639,7 +720,7 @@ export default function App() {
       recent.stopoverId || null,
       recent.destinationId,
       preference,
-      [],
+      avoidDisruptions ? disruptions : [],
       disruptions
     );
     setRoutes(calculated);
@@ -842,8 +923,18 @@ export default function App() {
   return (
     <div
       className={`${
-        theme === 'dark' ? 'dark bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'
-      } min-h-screen flex flex-col font-sans antialiased selection:bg-blue-600 selection:text-white transition-colors duration-200`}
+        uiTheme === 'minecraft'
+          ? theme === 'dark'
+            ? 'theme-minecraft theme-minecraft-dark dark bg-[#14161a] text-[#f1f5f9] font-mono'
+            : 'theme-minecraft theme-minecraft-light bg-[#f2ede4] text-[#24211d] font-mono'
+          : theme === 'dark'
+          ? uiTheme === 'ios'
+            ? 'dark bg-black text-slate-100 font-sans'
+            : 'dark bg-slate-950 text-slate-100 font-sans'
+          : uiTheme === 'ios'
+          ? 'bg-[#F2F2F7] text-slate-900 font-sans'
+          : 'bg-slate-50 text-slate-900 font-sans'
+      } min-h-screen flex flex-col antialiased selection:bg-blue-600 selection:text-white transition-colors duration-200`}
     >
       {/* Offline connectivity warning banner */}
       <OfflineIndicator language={language} />
@@ -864,17 +955,88 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* iOS Cupertino Header */}
-      <Header
-        language={language}
-        theme={theme}
-        onToggleTheme={handleToggleTheme}
-        activeTab={activeTab}
-      />
+      {/* Top Header: iOS Overhaul Header vs Classic Header */}
+      {uiTheme === 'ios' ? (
+        <IOSHeader
+          language={language}
+          theme={theme}
+          onToggleTheme={handleToggleTheme}
+          activeTab={activeTab}
+          onNavigateToTab={setActiveTab}
+          disruptions={disruptions}
+        />
+      ) : (
+        <Header
+          language={language}
+          theme={theme}
+          onToggleTheme={handleToggleTheme}
+          activeTab={activeTab}
+          disruptions={disruptions}
+          onNavigateToTab={setActiveTab}
+        />
+      )}
+
+      {/* First-launch Update Conducted Notification Banner */}
+      <AnimatePresence>
+        {showUpdateNotification && (
+          <motion.div
+            initial={{ opacity: 0, y: -20, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -20, scale: 0.95 }}
+            transition={{ type: 'spring', damping: 24, stiffness: 300 }}
+            className="fixed top-[calc(4rem+env(safe-area-inset-top))] left-3 right-3 sm:left-auto sm:right-6 sm:w-[410px] z-50 pointer-events-auto"
+          >
+            <div className="p-3.5 sm:p-4 rounded-2xl bg-gradient-to-r from-blue-600 via-indigo-600 to-sky-600 text-white shadow-2xl border border-white/25 flex items-start gap-3 backdrop-blur-md">
+              <div className="w-8 h-8 rounded-xl bg-white/20 flex items-center justify-center shrink-0 mt-0.5 shadow-xs">
+                <Sparkles className="w-4 h-4 text-amber-300 animate-pulse" />
+              </div>
+              <div className="flex-1 min-w-0 pr-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] font-bold uppercase tracking-wider bg-white/20 px-2 py-0.5 rounded-full text-white">
+                    {language === 'de' ? 'Update durchgeführt' : 'App Updated'}
+                  </span>
+                  <span className="font-mono text-xs font-black text-amber-200">
+                    v{CURRENT_VERSION}
+                  </span>
+                </div>
+                <p className="text-xs text-white/95 mt-1 font-medium leading-relaxed">
+                  {language === 'de'
+                    ? `MetroFlow wurde auf Version ${CURRENT_VERSION} aktualisiert!`
+                    : `MetroFlow has been updated to version ${CURRENT_VERSION}!`}
+                </p>
+                <div className="mt-2.5 flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleViewVersionHistoryFromNotification}
+                    className="text-xs font-bold py-1.5 px-3 rounded-xl bg-white text-blue-700 hover:bg-white/90 transition shadow-sm cursor-pointer active:scale-95"
+                  >
+                    {language === 'de' ? 'Was ist neu?' : "What's new?"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDismissUpdateNotification}
+                    className="text-xs font-medium py-1.5 px-2.5 rounded-xl text-white/80 hover:text-white hover:bg-white/10 transition cursor-pointer"
+                  >
+                    {language === 'de' ? 'Schließen' : 'Dismiss'}
+                  </button>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleDismissUpdateNotification}
+                className="p-1 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition cursor-pointer shrink-0"
+                title={language === 'de' ? 'Schließen' : 'Dismiss'}
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Main Content Area */}
       <main
-        className={`flex-1 w-full max-w-4xl mx-auto flex flex-col ${
+        className={`flex-1 w-full max-w-5xl mx-auto flex flex-col ${
           activeTab === 'map'
             ? 'px-0 md:px-6 pt-[calc(3.5rem+env(safe-area-inset-top))] pb-16 md:pb-6'
             : 'px-4 md:px-6 pt-[calc(3.5rem+env(safe-area-inset-top)+1.25rem)] pb-24 md:pb-8'
@@ -883,64 +1045,110 @@ export default function App() {
         <AnimatePresence mode="wait">
           {activeTab === 'home' && (
             <motion.div
-              key="home"
+              key={`home-${uiTheme}`}
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -6 }}
               transition={{ duration: 0.18, ease: 'easeOut' }}
               className="flex-1 flex flex-col"
             >
-              <HomePage
-                language={language}
-                isAdmin={isAdmin}
-                articles={articles}
-                disruptions={disruptions}
-                onNavigateToTab={setActiveTab}
-                onPublishArticle={handlePublishArticle}
-                onEditArticle={handleEditArticle}
-                onDeleteArticle={handleDeleteArticle}
-              />
+              {uiTheme === 'ios' ? (
+                <IOSHomePage
+                  language={language}
+                  isAdmin={isAdmin}
+                  articles={articles}
+                  disruptions={disruptions}
+                  onNavigateToTab={setActiveTab}
+                  onPublishArticle={handlePublishArticle}
+                  onEditArticle={handleEditArticle}
+                  onDeleteArticle={handleDeleteArticle}
+                  onSelectStationForTrip={handleSetOrigin}
+                />
+              ) : (
+                <HomePage
+                  language={language}
+                  isAdmin={isAdmin}
+                  articles={articles}
+                  disruptions={disruptions}
+                  onNavigateToTab={setActiveTab}
+                  onPublishArticle={handlePublishArticle}
+                  onEditArticle={handleEditArticle}
+                  onDeleteArticle={handleDeleteArticle}
+                />
+              )}
             </motion.div>
           )}
 
           {activeTab === 'plan' && (
             <motion.div
-              key="plan"
+              key={`plan-${uiTheme}`}
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -6 }}
               transition={{ duration: 0.18, ease: 'easeOut' }}
               className="flex-1 flex flex-col"
             >
-              <TripPlanner
-                language={language}
-                originId={originId}
-                destinationId={destinationId}
-                stopoverId={stopoverId}
-                routes={routes}
-                activeRoute={activeRoute}
-                savedJourneys={savedJourneys}
-                recentRoutes={recentRoutes}
-                lastPlannedEntry={lastPlannedEntry}
-                preference={preference}
-                disruptions={disruptions}
-                avoidDisruptions={avoidDisruptions}
-                onToggleAvoidDisruptions={setAvoidDisruptions}
-                onSetPreference={handleSetPreference}
-                onSelectRoute={(route) => setActiveRoute(route)}
-                onCalculateRoute={handleCalculateRoute}
-                hasCalculatedRoute={hasCalculatedRoute}
-                onSetOrigin={handleSetOrigin}
-                onSetDestination={handleSetDestination}
-                onSetStopover={handleSetStopover}
-                onSwapStations={handleSwapStations}
-                onViewOnMap={handleViewOnMap}
-                onSaveJourney={handleSaveJourney}
-                onSelectRecentRoute={handleSelectRecentRoute}
-                onDeleteRecentRoute={handleDeleteRecentRoute}
-                onClearRecentRoutes={handleClearRecentRoutes}
-                onRestoreLastEntry={handleRestoreLastEntry}
-              />
+              {uiTheme === 'ios' ? (
+                <IOSTripPlanner
+                  language={language}
+                  originId={originId}
+                  destinationId={destinationId}
+                  stopoverId={stopoverId}
+                  routes={routes}
+                  activeRoute={activeRoute}
+                  savedJourneys={savedJourneys}
+                  recentRoutes={recentRoutes}
+                  lastPlannedEntry={lastPlannedEntry}
+                  preference={preference}
+                  disruptions={disruptions}
+                  avoidDisruptions={avoidDisruptions}
+                  onToggleAvoidDisruptions={handleToggleAvoidDisruptions}
+                  onSetPreference={handleSetPreference}
+                  onSelectRoute={(route) => setActiveRoute(route)}
+                  onCalculateRoute={handleCalculateRoute}
+                  hasCalculatedRoute={hasCalculatedRoute}
+                  onSetOrigin={handleSetOrigin}
+                  onSetDestination={handleSetDestination}
+                  onSetStopover={handleSetStopover}
+                  onSwapStations={handleSwapStations}
+                  onViewOnMap={handleViewOnMap}
+                  onSaveJourney={handleSaveJourney}
+                  onSelectRecentRoute={handleSelectRecentRoute}
+                  onDeleteRecentRoute={handleDeleteRecentRoute}
+                  onClearRecentRoutes={handleClearRecentRoutes}
+                  onRestoreLastEntry={handleRestoreLastEntry}
+                />
+              ) : (
+                <TripPlanner
+                  language={language}
+                  originId={originId}
+                  destinationId={destinationId}
+                  stopoverId={stopoverId}
+                  routes={routes}
+                  activeRoute={activeRoute}
+                  savedJourneys={savedJourneys}
+                  recentRoutes={recentRoutes}
+                  lastPlannedEntry={lastPlannedEntry}
+                  preference={preference}
+                  disruptions={disruptions}
+                  avoidDisruptions={avoidDisruptions}
+                  onToggleAvoidDisruptions={handleToggleAvoidDisruptions}
+                  onSetPreference={handleSetPreference}
+                  onSelectRoute={(route) => setActiveRoute(route)}
+                  onCalculateRoute={handleCalculateRoute}
+                  hasCalculatedRoute={hasCalculatedRoute}
+                  onSetOrigin={handleSetOrigin}
+                  onSetDestination={handleSetDestination}
+                  onSetStopover={handleSetStopover}
+                  onSwapStations={handleSwapStations}
+                  onViewOnMap={handleViewOnMap}
+                  onSaveJourney={handleSaveJourney}
+                  onSelectRecentRoute={handleSelectRecentRoute}
+                  onDeleteRecentRoute={handleDeleteRecentRoute}
+                  onClearRecentRoutes={handleClearRecentRoutes}
+                  onRestoreLastEntry={handleRestoreLastEntry}
+                />
+              )}
             </motion.div>
           )}
 
@@ -995,67 +1203,123 @@ export default function App() {
 
           {activeTab === 'lines' && (
             <motion.div
-              key="lines"
+              key={`lines-${uiTheme}`}
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -6 }}
               transition={{ duration: 0.18, ease: 'easeOut' }}
               className="flex-1 flex flex-col"
             >
-              <LineDirectory
-                language={language}
-                disruptions={disruptions}
-                userConfirmedIds={userConfirmedIds}
-                userResolvedIds={userResolvedIds}
-                onConfirmDisruption={handleConfirmDisruption}
-                onReportResolved={handleReportResolved}
-                onReportDisruption={handleReportDisruption}
-                isAdmin={isAdmin}
-                onEditDisruption={handleOpenEditDisruption}
-                onDeleteDisruption={handleDeleteDisruption}
-                onSelectStation={() => {
-                  setActiveTab('map');
-                }}
-                onSetOrigin={(stId) => {
-                  handleSetOrigin(stId);
-                  setActiveTab('plan');
-                }}
-                onSetDestination={(stId) => {
-                  handleSetDestination(stId);
-                  setActiveTab('plan');
-                }}
-              />
+              {uiTheme === 'ios' ? (
+                <IOSLineDirectory
+                  language={language}
+                  disruptions={disruptions}
+                  userConfirmedIds={userConfirmedIds}
+                  userResolvedIds={userResolvedIds}
+                  onConfirmDisruption={handleConfirmDisruption}
+                  onReportResolved={handleReportResolved}
+                  onReportDisruption={handleReportDisruption}
+                  isAdmin={isAdmin}
+                  onEditDisruption={handleOpenEditDisruption}
+                  onDeleteDisruption={handleDeleteDisruption}
+                  onSelectStation={() => {
+                    setActiveTab('map');
+                  }}
+                  onSetOrigin={(stId) => {
+                    handleSetOrigin(stId);
+                    setActiveTab('plan');
+                  }}
+                  onSetDestination={(stId) => {
+                    handleSetDestination(stId);
+                    setActiveTab('plan');
+                  }}
+                />
+              ) : (
+                <LineDirectory
+                  language={language}
+                  disruptions={disruptions}
+                  userConfirmedIds={userConfirmedIds}
+                  userResolvedIds={userResolvedIds}
+                  onConfirmDisruption={handleConfirmDisruption}
+                  onReportResolved={handleReportResolved}
+                  onReportDisruption={handleReportDisruption}
+                  isAdmin={isAdmin}
+                  onEditDisruption={handleOpenEditDisruption}
+                  onDeleteDisruption={handleDeleteDisruption}
+                  onSelectStation={() => {
+                    setActiveTab('map');
+                  }}
+                  onSetOrigin={(stId) => {
+                    handleSetOrigin(stId);
+                    setActiveTab('plan');
+                  }}
+                  onSetDestination={(stId) => {
+                    handleSetDestination(stId);
+                    setActiveTab('plan');
+                  }}
+                />
+              )}
             </motion.div>
           )}
 
           {activeTab === 'options' && (
             <motion.div
-              key="options"
+              key={`options-${uiTheme}`}
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -6 }}
               transition={{ duration: 0.18, ease: 'easeOut' }}
               className="flex-1 flex flex-col"
             >
-              <OptionsMenu
-                language={language}
-                onSetLanguage={handleSetLanguage}
-                theme={theme}
-                onSetTheme={setTheme}
-                savedJourneys={savedJourneys}
-                onLoadSavedJourney={handleLoadSavedJourney}
-                onDeleteSavedJourney={handleDeleteSavedJourney}
-                mapRoutePlanningEnabled={mapRoutePlanningEnabled}
-                onToggleMapRoutePlanning={handleToggleMapRoutePlanning}
-                isAdmin={isAdmin}
-                onToggleAdmin={handleToggleAdmin}
-                tabBarStyle={tabBarStyle}
-                onSetTabBarStyle={handleSetTabBarStyle}
-                startupOverviewEnabled={startupOverviewEnabled}
-                onToggleStartupOverview={handleToggleStartupOverview}
-                onRefreshData={handleRefreshData}
-                isRefreshingData={isRefreshingData}
-              />
+              {uiTheme === 'ios' ? (
+                <IOSSettingsView
+                  language={language}
+                  onSetLanguage={handleSetLanguage}
+                  theme={theme}
+                  onSetTheme={setTheme}
+                  uiTheme={uiTheme}
+                  onSetUiTheme={handleSetUiTheme}
+                  savedJourneys={savedJourneys}
+                  onLoadSavedJourney={handleLoadSavedJourney}
+                  onDeleteSavedJourney={handleDeleteSavedJourney}
+                  mapRoutePlanningEnabled={mapRoutePlanningEnabled}
+                  onToggleMapRoutePlanning={handleToggleMapRoutePlanning}
+                  isAdmin={isAdmin}
+                  onToggleAdmin={handleToggleAdmin}
+                  tabBarStyle={tabBarStyle}
+                  onSetTabBarStyle={handleSetTabBarStyle}
+                  startupOverviewEnabled={startupOverviewEnabled}
+                  onToggleStartupOverview={handleToggleStartupOverview}
+                  onRefreshData={handleRefreshData}
+                  isRefreshingData={isRefreshingData}
+                  openVersionHistoryDirectly={openVersionHistoryFromBanner}
+                  onCloseVersionHistoryDirectly={() => setOpenVersionHistoryFromBanner(false)}
+                />
+              ) : (
+                <OptionsMenu
+                  language={language}
+                  onSetLanguage={handleSetLanguage}
+                  theme={theme}
+                  onSetTheme={setTheme}
+                  uiTheme={uiTheme}
+                  onSetUiTheme={handleSetUiTheme}
+                  savedJourneys={savedJourneys}
+                  onLoadSavedJourney={handleLoadSavedJourney}
+                  onDeleteSavedJourney={handleDeleteSavedJourney}
+                  mapRoutePlanningEnabled={mapRoutePlanningEnabled}
+                  onToggleMapRoutePlanning={handleToggleMapRoutePlanning}
+                  isAdmin={isAdmin}
+                  onToggleAdmin={handleToggleAdmin}
+                  tabBarStyle={tabBarStyle}
+                  onSetTabBarStyle={handleSetTabBarStyle}
+                  startupOverviewEnabled={startupOverviewEnabled}
+                  onToggleStartupOverview={handleToggleStartupOverview}
+                  onRefreshData={handleRefreshData}
+                  isRefreshingData={isRefreshingData}
+                  openVersionHistoryDirectly={openVersionHistoryFromBanner}
+                  onCloseVersionHistoryDirectly={() => setOpenVersionHistoryFromBanner(false)}
+                />
+              )}
             </motion.div>
           )}
         </AnimatePresence>

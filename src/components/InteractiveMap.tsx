@@ -1,9 +1,9 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Station, LineId, RouteOption, Disruption } from '../types/metro';
 import { STATIONS, METRO_LINES } from '../data/metroData';
 import { buildLegTrackPath } from '../utils/trackPaths';
-import { Language, translations } from '../utils/i18n';
+import { Language, translations, getDisruptionTypeLabel } from '../utils/i18n';
 import { ConfirmDeleteDisruptionModal } from './ConfirmDeleteDisruptionModal';
 import { haptic } from '../utils/haptics';
 import {
@@ -32,6 +32,7 @@ import {
   CheckCircle2,
   ChevronUp,
   ChevronDown,
+  ChevronRight,
   Pencil,
   Trash2,
   Search,
@@ -116,7 +117,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
   const isMobile = windowWidth < 768;
 
   // Optimized mobile defaults: cleanly center the network and use screen space efficiently
-  const [zoom, setZoom] = useState(() => (typeof window !== 'undefined' && window.innerWidth < 768 ? 1.05 : 1));
+  const [zoom, setZoom] = useState(() => (typeof window !== 'undefined' && window.innerWidth < 768 ? 1 : 1));
   const [pan, setPan] = useState(() => ({ x: 0, y: 0 }));
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
@@ -129,6 +130,15 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
   const [disruptionToDelete, setDisruptionToDelete] = useState<Disruption | null>(null);
   const [showLegend, setShowLegend] = useState(false);
   const [internalLegendExpanded, setInternalLegendExpanded] = useState(false);
+
+  // Responsive collapsibility for map info cards (expanded by default per user request)
+  const [isStationCardCollapsed, setIsStationCardCollapsed] = useState(false);
+  const [isLineCardCollapsed, setIsLineCardCollapsed] = useState(false);
+  const [isDisruptionCardCollapsed, setIsDisruptionCardCollapsed] = useState(false);
+
+  // Independent smoothly draggable info card state
+  const [isInfoCardDragging, setIsInfoCardDragging] = useState(false);
+  const dragMovedRef = useRef(false);
 
   const clickedLine = clickedLineId ? METRO_LINES[clickedLineId] : null;
 
@@ -151,15 +161,64 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
 
   const containerRef = useRef<HTMLDivElement>(null);
 
+  const BASE_MAP_X = -20;
+  const BASE_MAP_Y = 8;
+  const BASE_MAP_W = 1115;
+  const BASE_MAP_H = 702;
+  const MAP_CENTER_X = BASE_MAP_X + BASE_MAP_W / 2; // 537.5
+  const MAP_CENTER_Y = BASE_MAP_Y + BASE_MAP_H / 2; // 359
+
+  const [containerSize, setContainerSize] = useState({
+    width: typeof window !== 'undefined' ? window.innerWidth : 1024,
+    height: 600,
+  });
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const el = containerRef.current;
+    const updateSize = () => {
+      const rect = el.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        setContainerSize({ width: rect.width, height: rect.height });
+      }
+    };
+    updateSize();
+    const ro = new ResizeObserver(updateSize);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  // Compute subpixel-crisp SVG viewBox dynamically so the browser vector engine
+  // renders paths directly onto the physical Retina display without bitmap scaling
+  const svgViewBox = useMemo(() => {
+    const baseScale = Math.min(containerSize.width / BASE_MAP_W, containerSize.height / BASE_MAP_H) || 1;
+    const effectiveScale = baseScale * zoom;
+    const svgPanX = pan.x / effectiveScale;
+    const svgPanY = pan.y / effectiveScale;
+
+    const visibleW = BASE_MAP_W / zoom;
+    const visibleH = BASE_MAP_H / zoom;
+
+    const centerX = MAP_CENTER_X - svgPanX;
+    const centerY = MAP_CENTER_Y - svgPanY;
+
+    const minX = centerX - visibleW / 2;
+    const minY = centerY - visibleH / 2;
+
+    return `${minX.toFixed(2)} ${minY.toFixed(2)} ${visibleW.toFixed(2)} ${visibleH.toFixed(2)}`;
+  }, [containerSize.width, containerSize.height, zoom, pan.x, pan.y]);
+
   // Boundary constraints so user can never drag or pinch far away from the contents of the map
   const clampPan = (px: number, py: number, currentZoom: number) => {
     const container = containerRef.current;
     const w = container?.clientWidth || windowWidth;
     const h = container?.clientHeight || 600;
 
-    // Keep at least a generous portion of the network within viewport
-    const maxPanX = Math.max(50, (w * currentZoom - w) / 2 + w * 0.22);
-    const maxPanY = Math.max(50, (h * currentZoom - h) / 2 + h * 0.22);
+    // Keep at least a generous portion of the network within viewport, allowing full panning to edges on mobile
+    const extraMobileX = isMobile ? w * 0.45 : w * 0.22;
+    const extraMobileY = isMobile ? h * 0.35 : h * 0.22;
+    const maxPanX = Math.max(80, (w * currentZoom - w) / 2 + extraMobileX);
+    const maxPanY = Math.max(80, (h * currentZoom - h) / 2 + extraMobileY);
 
     return {
       x: Math.min(Math.max(px, -maxPanX), maxPanX),
@@ -174,7 +233,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
   ) => {
     setZoom((prevZoom) => {
       const nextZoomRaw = typeof nextZoomOrFn === 'function' ? nextZoomOrFn(prevZoom) : nextZoomOrFn;
-      const minZoom = isMobile ? 0.85 : 0.75;
+      const minZoom = isMobile ? 0.75 : 0.75;
       const maxZoom = 3.2;
       const nextZoom = Math.min(Math.max(nextZoomRaw, minZoom), maxZoom);
 
@@ -204,6 +263,31 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
   const touchStartPanRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const touchStartFocalRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
 
+  // Animation frame coalescing to guarantee 60-120fps stutter-free panning & zooming
+  const rafIdRef = useRef<number | null>(null);
+  const pendingPanRef = useRef<{ x: number; y: number } | null>(null);
+
+  const schedulePanUpdate = (newPan: { x: number; y: number }) => {
+    pendingPanRef.current = newPan;
+    if (rafIdRef.current === null) {
+      rafIdRef.current = requestAnimationFrame(() => {
+        rafIdRef.current = null;
+        if (pendingPanRef.current) {
+          setPan(pendingPanRef.current);
+          pendingPanRef.current = null;
+        }
+      });
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current);
+      }
+    };
+  }, []);
+
   const handleZoomIn = () => {
     haptic.selection();
     zoomToPoint((prev) => prev + 0.25);
@@ -214,8 +298,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
   };
   const handleReset = () => {
     haptic.medium();
-    const mobile = typeof window !== 'undefined' && window.innerWidth < 768;
-    setZoom(mobile ? 1.05 : 1);
+    setZoom(1);
     setPan({ x: 0, y: 0 });
     setClickedStationId(null);
     setClickedLineId(null);
@@ -236,21 +319,48 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
     }
   };
 
+  const isInteractiveUI = (target: EventTarget | null) => {
+    if (!target || !(target instanceof Element)) return false;
+    return Boolean(target.closest('.info-window-sheet, .map-floating-ui, button, input, [role="button"], [role="dialog"]'));
+  };
+
   const handleMouseDown = (e: React.MouseEvent) => {
     if (e.button !== 0) return;
+    if (isInfoCardDragging || isInteractiveUI(e.target)) {
+      setIsDragging(false);
+      return;
+    }
     setIsDragging(true);
     setDragStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
   };
 
   const handleMouseMove = (e: React.MouseEvent) => {
+    if (isInfoCardDragging || isInteractiveUI(e.target)) {
+      if (isDragging) setIsDragging(false);
+      return;
+    }
     if (!isDragging) return;
-    setPan(clampPan(e.clientX - dragStart.x, e.clientY - dragStart.y, zoom));
+    schedulePanUpdate(clampPan(e.clientX - dragStart.x, e.clientY - dragStart.y, zoom));
   };
 
-  const handleMouseUp = () => setIsDragging(false);
+  const handleMouseUp = () => {
+    setIsDragging(false);
+    if (rafIdRef.current !== null) {
+      cancelAnimationFrame(rafIdRef.current);
+      rafIdRef.current = null;
+    }
+    if (pendingPanRef.current) {
+      setPan(pendingPanRef.current);
+      pendingPanRef.current = null;
+    }
+  };
 
   // Touch Events
   const handleTouchStart = (e: React.TouchEvent) => {
+    if (isInfoCardDragging || isInteractiveUI(e.target)) {
+      setIsDragging(false);
+      return;
+    }
     if (e.touches.length === 1) {
       setIsDragging(true);
       setDragStart({
@@ -280,8 +390,12 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
   };
 
   const handleTouchMove = (e: React.TouchEvent) => {
+    if (isInfoCardDragging || isInteractiveUI(e.target)) {
+      if (isDragging) setIsDragging(false);
+      return;
+    }
     if (e.touches.length === 1 && isDragging) {
-      setPan(clampPan(e.touches[0].clientX - dragStart.x, e.touches[0].clientY - dragStart.y, zoom));
+      schedulePanUpdate(clampPan(e.touches[0].clientX - dragStart.x, e.touches[0].clientY - dragStart.y, zoom));
     } else if (e.touches.length === 2 && touchStartDistRef.current !== null) {
       const dist = Math.hypot(
         e.touches[0].clientX - e.touches[1].clientX,
@@ -312,13 +426,21 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
       const newPanY = currFocal.y - ratio * (focal.y - startPan.y);
 
       setZoom(nextZoom);
-      setPan(clampPan(newPanX, newPanY, nextZoom));
+      schedulePanUpdate(clampPan(newPanX, newPanY, nextZoom));
     }
   };
 
   const handleTouchEnd = () => {
     setIsDragging(false);
     touchStartDistRef.current = null;
+    if (rafIdRef.current !== null) {
+      cancelAnimationFrame(rafIdRef.current);
+      rafIdRef.current = null;
+    }
+    if (pendingPanRef.current) {
+      setPan(pendingPanRef.current);
+      pendingPanRef.current = null;
+    }
   };
 
   const handleStationClick = (e: React.MouseEvent | React.TouchEvent, stationId: string) => {
@@ -326,6 +448,8 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
     haptic.light();
     setClickedStationId(stationId);
     setClickedLineId(null);
+    // Open station info window expanded by default per user request
+    setIsStationCardCollapsed(false);
     onSelectStation(stationId);
   };
 
@@ -335,6 +459,8 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
     setClickedLineId((prev) => (prev === lineId ? null : lineId));
     setClickedStationId(null);
     setSelectedDisruption(null);
+    // Open line info window expanded by default per user request
+    setIsLineCardCollapsed(false);
   };
 
   // Check if a station is on active journey
@@ -387,6 +513,24 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
   };
 
   const clickedStation = clickedStationId ? STATIONS[clickedStationId] : null;
+
+  // Memoize disruptions for clicked station & line to avoid re-filtering during drag/zoom frames
+  const clickedStationDisruptions = useMemo(() => {
+    if (!clickedStation) return [];
+    return disruptions.filter(
+      (d) =>
+        d.isActive &&
+        (d.fromStationId === clickedStation.id ||
+          d.toStationId === clickedStation.id ||
+          (d.affectedStations && d.affectedStations.includes(clickedStation.id)) ||
+          clickedStation.lines.includes(d.lineId))
+    );
+  }, [clickedStation, disruptions]);
+
+  const clickedLineDisruptions = useMemo(() => {
+    if (!clickedLine) return [];
+    return disruptions.filter((d) => d.isActive && d.lineId === clickedLine.id);
+  }, [clickedLine, disruptions]);
 
   const matchingStations = searchQuery.trim()
     ? Object.values(STATIONS).filter((st) => {
@@ -446,7 +590,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
       />
 
       {/* Floating Map Controls */}
-      <div className="absolute top-3 right-3 sm:top-4 sm:right-4 z-20 flex flex-col gap-1.5 sm:gap-2.5 items-end">
+      <div className="map-floating-ui absolute top-3 right-3 sm:top-4 sm:right-4 z-20 flex flex-col gap-1.5 sm:gap-2.5 items-end">
         {/* Card 1: Zoom & Reset */}
         <div className="flex flex-col bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl rounded-2xl border border-slate-200/80 dark:border-slate-800/80 shadow-xl overflow-hidden p-1">
           <motion.button
@@ -551,7 +695,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
       </div>
 
       {/* Top-Left Search Bar & Network Header Overlay */}
-      <div className="absolute top-3 left-3 sm:top-4 sm:left-4 z-20 flex flex-col gap-2 max-w-[270px] sm:max-w-xs w-full pointer-events-auto">
+      <div className="map-floating-ui absolute top-3 left-3 sm:top-4 sm:left-4 z-20 flex flex-col gap-2 max-w-[270px] sm:max-w-xs w-full pointer-events-auto">
         {/* Station Search Input */}
         <div className="relative flex items-center bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl border border-slate-200/90 dark:border-slate-800/90 rounded-2xl shadow-xl px-3 py-2 transition-all focus-within:ring-2 focus-within:ring-blue-500/50">
           <Search className="w-4 h-4 text-slate-400 dark:text-slate-500 shrink-0 mr-2" />
@@ -568,12 +712,17 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                 const target = matchingStations[0];
                 haptic.selection();
                 setClickedStationId(target.id);
+                setIsStationCardCollapsed(false);
                 onSelectStation(target.id);
                 setSearchQuery('');
                 setIsSearchFocused(false);
                 const targetZoom = Math.max(zoom, 1.45);
                 setZoom(targetZoom);
-                setPan(clampPan(- (target.x - (isMobile ? 550 : 510)) * targetZoom, - (target.y - 360) * targetZoom, targetZoom));
+                const baseScale = Math.min(containerSize.width / BASE_MAP_W, containerSize.height / BASE_MAP_H) || 1;
+                const effectiveScale = baseScale * targetZoom;
+                const targetCenterX = isMobile ? 550 : MAP_CENTER_X;
+                const targetCenterY = MAP_CENTER_Y;
+                setPan(clampPan(- (target.x - targetCenterX) * effectiveScale, - (target.y - targetCenterY) * effectiveScale, targetZoom));
               } else if (e.key === 'Escape') {
                 setIsSearchFocused(false);
               }
@@ -614,13 +763,18 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                     e.stopPropagation();
                     haptic.selection();
                     setClickedStationId(station.id);
+                    setIsStationCardCollapsed(false);
                     onSelectStation(station.id);
                     setSearchQuery('');
                     setIsSearchFocused(false);
                     // Center smoothly on selected station
                     const targetZoom = Math.max(zoom, 1.45);
                     setZoom(targetZoom);
-                    setPan(clampPan(- (station.x - (isMobile ? 550 : 510)) * targetZoom, - (station.y - 360) * targetZoom, targetZoom));
+                    const baseScale = Math.min(containerSize.width / BASE_MAP_W, containerSize.height / BASE_MAP_H) || 1;
+                    const effectiveScale = baseScale * targetZoom;
+                    const targetCenterX = isMobile ? 550 : MAP_CENTER_X;
+                    const targetCenterY = MAP_CENTER_Y;
+                    setPan(clampPan(- (station.x - targetCenterX) * effectiveScale, - (station.y - targetCenterY) * effectiveScale, targetZoom));
                   }}
                   className="w-full flex items-center justify-between p-2 rounded-xl text-left hover:bg-slate-100 dark:hover:bg-slate-800/80 transition group"
                 >
@@ -792,19 +946,17 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
       )}
       </AnimatePresence>
 
-      {/* Main SVG Vector Canvas */}
+      {/* Main SVG Vector Canvas - High Resolution Dynamic ViewBox */}
       <svg
-        viewBox={isMobile ? '160 20 780 680' : '0 0 1020 720'}
-        className={`w-full h-full origin-center select-none ${isDragging ? '' : 'transition-transform duration-100 ease-out'}`}
+        viewBox={svgViewBox}
+        className="w-full h-full origin-center select-none"
         preserveAspectRatio="xMidYMid meet"
-        style={{
-          transform: `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${zoom})`,
-          willChange: isDragging ? 'transform' : 'auto',
-        }}
+        shapeRendering="geometricPrecision"
+        textRendering="geometricPrecision"
       >
         <defs>
           <filter id="routeGlow" x="-20%" y="-20%" width="140%" height="140%">
-            <feGaussianBlur stdDeviation="3.5" result="blur" />
+            <feGaussianBlur stdDeviation={isDragging ? 0 : 3.5} result="blur" />
             <feComposite in="SourceGraphic" in2="blur" operator="over" />
           </filter>
 
@@ -867,7 +1019,11 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                   L 340 335
                   L 340 518
                   L 340 568
-                  L 340 678
+                  L 405 568
+                  L 405 532
+                  L 455 532
+                  L 455 604
+                  L 405 604
                   L 405 678
                   L 515 678
                   L 635 678
@@ -888,7 +1044,11 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                   L 340 335
                   L 340 518
                   L 340 568
-                  L 340 678
+                  L 405 568
+                  L 405 532
+                  L 455 532
+                  L 455 604
+                  L 405 604
                   L 405 678
                   L 515 678
                   L 635 678
@@ -903,7 +1063,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                 strokeLinejoin="round"
                 strokeOpacity={getLineOpacity('U-Grün')}
                 filter={isLineHighlighted('U-Grün') ? 'url(#routeGlow)' : undefined}
-                className="transition-all duration-300"
+                className="transition-opacity duration-200"
               />
             </g>
 
@@ -960,7 +1120,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                 strokeLinejoin="round"
                 strokeOpacity={getLineOpacity('U-Rot')}
                 filter={isLineHighlighted('U-Rot') ? 'url(#routeGlow)' : undefined}
-                className="transition-all duration-300"
+                className="transition-opacity duration-200"
               />
             </g>
 
@@ -999,7 +1159,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                 strokeLinejoin="round"
                 strokeOpacity={getLineOpacity('U-Orange')}
                 filter={isLineHighlighted('U-Orange') ? 'url(#routeGlow)' : undefined}
-                className="transition-all duration-300"
+                className="transition-opacity duration-200"
               />
             </g>
 
@@ -1046,7 +1206,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                 strokeLinejoin="round"
                 strokeOpacity={getLineOpacity('Tim-Train')}
                 filter={isLineHighlighted('Tim-Train') ? 'url(#routeGlow)' : undefined}
-                className="transition-all duration-300"
+                className="transition-opacity duration-200"
               />
             </g>
 
@@ -1097,7 +1257,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                 strokeLinejoin="round"
                 strokeOpacity={getLineOpacity('U-Schwarz')}
                 filter={isLineHighlighted('U-Schwarz') ? 'url(#routeGlow)' : undefined}
-                className="transition-all duration-300"
+                className="transition-opacity duration-200"
               />
             </g>
 
@@ -1136,52 +1296,10 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                 strokeLinejoin="round"
                 strokeOpacity={getLineOpacity('U-Hellgrün')}
                 filter={isLineHighlighted('U-Hellgrün') ? 'url(#routeGlow)' : undefined}
-                className="transition-all duration-300"
+                className="transition-opacity duration-200"
               />
             </g>
 
-            {/* 7. BLUE LINE (U-Blau / U5) - Daniel Tower ↔ Badesee ↔ Carl Station ↔ Airport Hotel ↔ Kellrods Airport ↔ Central Station */}
-            <g
-              id="line-group-U-Blau"
-              className="cursor-pointer"
-              onClick={(e) => handleLineClick(e, 'U-Blau')}
-            >
-              <path
-                d="
-                  M 346 335
-                  L 346 518
-                  L 346 568
-                  L 346 604
-                  L 405 604
-                  L 405 532
-                  L 455 532
-                "
-                fill="none"
-                stroke="transparent"
-                strokeWidth="24"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-              <path
-                d="
-                  M 346 335
-                  L 346 518
-                  L 346 568
-                  L 346 604
-                  L 405 604
-                  L 405 532
-                  L 455 532
-                "
-                fill="none"
-                stroke={METRO_LINES['U-Blau'].color}
-                strokeWidth={isLineHighlighted('U-Blau') ? 8.5 : 6}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeOpacity={getLineOpacity('U-Blau')}
-                filter={isLineHighlighted('U-Blau') ? 'url(#routeGlow)' : undefined}
-                className="transition-all duration-300"
-              />
-            </g>
           </g>
         )}
 
@@ -1872,7 +1990,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                 <circle
                   cx={station.x}
                   cy={station.y}
-                  r={isOrigin || isDest || isStopover ? 20 : 16}
+                  r={isOrigin || isDest || isStopover ? 15 : 12}
                   fill={
                     isOrigin
                       ? '#10B981'
@@ -1884,8 +2002,20 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                       ? '#38BDF8'
                       : '#F59E0B'
                   }
-                  fillOpacity="0.3"
-                  className="animate-ping"
+                  fillOpacity="0.35"
+                  stroke={
+                    isOrigin
+                      ? '#10B981'
+                      : isDest
+                      ? '#EF4444'
+                      : isStopover
+                      ? '#38BDF8'
+                      : isClicked
+                      ? '#38BDF8'
+                      : '#F59E0B'
+                  }
+                  strokeWidth="2.5"
+                  strokeOpacity="0.8"
                 />
               )}
 
@@ -2071,11 +2201,99 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                 strokeLinecap="round"
                 className="select-none pointer-events-none transition-colors font-sans"
               >
-                {station.name}
+                {station.id === 'traphgon-fern-t3' ? (
+                  <>
+                    <tspan x={station.x + (isDoubleRingStation ? 12 : 9)} dy="-0.4em">
+                      Traphgon Airport
+                    </tspan>
+                    <tspan x={station.x + (isDoubleRingStation ? 12 : 9)} dy="1.25em">
+                      Terminal 3 / Fernbahnhof
+                    </tspan>
+                  </>
+                ) : station.id === 'retow-terminus' ? (
+                  <>
+                    <tspan x={station.x - (isDoubleRingStation ? 12 : 9)} dy="-0.4em">
+                      Retow
+                    </tspan>
+                    <tspan x={station.x - (isDoubleRingStation ? 12 : 9)} dy="1.25em">
+                      (Terminus)
+                    </tspan>
+                  </>
+                ) : (
+                  station.name
+                )}
               </text>
             </g>
           );
         })}
+        {/* ----------------- OBSTRUCTED TRACKS ON MAP ----------------- */}
+        {/* Visually paints physical tracks that are obstructed by active disruptions */}
+        {disruptions && disruptions.filter((d) => d.isActive).map((disrupt) => {
+          const stationList = disrupt.affectedStations && disrupt.affectedStations.length >= 2
+            ? disrupt.affectedStations
+            : [disrupt.fromStationId, disrupt.toStationId];
+          const trackPath = buildLegTrackPath(disrupt.lineId, stationList);
+          if (!trackPath) return null;
+
+          return (
+            <g
+              key={`obstructed-track-${disrupt.id}`}
+              className="cursor-pointer select-none group"
+              onClick={(e) => {
+                e.stopPropagation();
+                haptic.medium();
+                setSelectedDisruption(disrupt);
+                setClickedStationId(null);
+                setClickedLineId(null);
+                setIsDisruptionCardCollapsed(false);
+              }}
+            >
+              {/* Outer danger halo glow */}
+              <path
+                d={trackPath}
+                fill="none"
+                stroke="#EF4444"
+                strokeWidth="14"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                opacity="0.6"
+                filter="url(#routeGlow)"
+              />
+              {/* Solid dark warning base */}
+              <path
+                d={trackPath}
+                fill="none"
+                stroke="#7F1D1D"
+                strokeWidth="8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                opacity="0.95"
+              />
+              {/* Hazard alternating striped track (high-visibility danger dashes) */}
+              <path
+                d={trackPath}
+                fill="none"
+                stroke="#FACC15"
+                strokeWidth="5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeDasharray="9 7"
+                opacity="0.95"
+              />
+              {/* Central high-visibility crimson stripe */}
+              <path
+                d={trackPath}
+                fill="none"
+                stroke="#DC2626"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeDasharray="4 8"
+              />
+            </g>
+          );
+        })}
+
         {/* ----------------- DISRUPTION MARKERS ON MAP ----------------- */}
         {disruptions && disruptions.map((disrupt) => {
           const fromSt = STATIONS[disrupt.fromStationId];
@@ -2095,15 +2313,19 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                 haptic.medium();
                 setSelectedDisruption(disrupt);
                 setClickedStationId(null);
+                setClickedLineId(null);
+                setIsDisruptionCardCollapsed(false);
               }}
               transform={`translate(${x}, ${y})`}
             >
-              {/* Pulsing Warning Halo */}
+              {/* Warning Halo */}
               <circle
-                r="18"
+                r="16"
                 fill="#EF4444"
                 fillOpacity="0.25"
-                className="animate-ping"
+                stroke="#EF4444"
+                strokeWidth="1.5"
+                strokeOpacity="0.6"
               />
               <circle
                 r="13"
@@ -2166,11 +2388,31 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
       <AnimatePresence>
         {activeRoute && (
           <motion.div
+            drag
+            dragConstraints={false}
+            dragElastic={0}
+            dragMomentum={false}
+            onDragStart={() => {
+              setIsInfoCardDragging(true);
+              setIsDragging(false);
+            }}
+            onDragEnd={() => {
+              setIsInfoCardDragging(false);
+            }}
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
-            className="absolute top-16 left-3 right-3 sm:top-4 sm:left-auto sm:right-16 sm:max-w-xs z-20 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl border border-slate-200 dark:border-slate-800 rounded-2xl p-3 shadow-xl space-y-2"
+            style={{ touchAction: 'none' }}
+            className="info-window-sheet absolute top-16 left-3 right-3 sm:top-4 sm:left-auto sm:right-16 sm:max-w-xs z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl border border-slate-200 dark:border-slate-800 rounded-2xl p-3 shadow-xl space-y-2 select-none cursor-grab active:cursor-grabbing"
+            onClick={(e) => e.stopPropagation()}
           >
+            {/* iOS-style Drag Handle Pill */}
+            <div
+              className="flex items-center justify-center -mt-1 pb-1 select-none pointer-events-none"
+            >
+              <div className="w-8 h-1 rounded-full bg-slate-300 dark:bg-slate-600 shadow-2xs" />
+            </div>
+
             <div className="flex items-center justify-between pb-1.5 border-b border-slate-100 dark:border-slate-800">
               <span className="text-[10px] uppercase font-bold tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1">
                 <Compass className="w-3.5 h-3.5 text-blue-500" />
@@ -2412,170 +2654,260 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
       <AnimatePresence>
         {selectedDisruption && (
           <motion.div
+            key={selectedDisruption.id}
             drag
-            dragConstraints={containerRef}
-            dragElastic={0.08}
+            dragConstraints={false}
+            dragElastic={0}
             dragMomentum={false}
-            initial={{ y: 40, opacity: 0, scale: 0.96 }}
-            animate={{ y: 0, opacity: 1, scale: 1 }}
-            exit={{ y: 40, opacity: 0, scale: 0.96 }}
-            transition={{ type: 'spring', stiffness: 420, damping: 32 }}
-            className="absolute bottom-22 sm:bottom-24 md:bottom-4 right-3 sm:right-4 w-[calc(100%-1.5rem)] sm:w-96 max-w-sm sm:max-w-md max-h-[calc(100%-6.5rem)] overflow-y-auto z-45 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl border-2 border-amber-500/70 dark:border-amber-500/60 rounded-3xl p-4 shadow-2xl space-y-3 cursor-default"
+            onDragStart={() => {
+              dragMovedRef.current = true;
+              setIsInfoCardDragging(true);
+              setIsDragging(false);
+            }}
+            onDragEnd={() => {
+              setIsInfoCardDragging(false);
+              setTimeout(() => {
+                dragMovedRef.current = false;
+              }, 120);
+            }}
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            transition={{
+              type: 'spring',
+              stiffness: 380,
+              damping: 32,
+            }}
+            style={{ touchAction: 'none' }}
+            className="info-window-sheet absolute bottom-22 sm:bottom-24 md:bottom-4 right-3 sm:right-4 w-[calc(100%-1.5rem)] sm:w-96 max-w-sm sm:max-w-md overflow-hidden z-45 bg-white/95 dark:bg-slate-900/95 backdrop-blur-2xl border-2 border-amber-500/80 dark:border-amber-500/70 rounded-3xl shadow-[0_16px_48px_rgba(0,0,0,0.22)] dark:shadow-[0_16px_48px_rgba(0,0,0,0.65)] p-3.5 select-none"
             onClick={(e) => e.stopPropagation()}
-            onPointerDown={(e) => e.stopPropagation()}
-            onMouseDown={(e) => e.stopPropagation()}
-            onTouchStart={(e) => e.stopPropagation()}
           >
-            {/* iOS-style Drag Handle Bar */}
-            <div className="flex items-center justify-center -mt-1 -mb-1 pt-0.5 pb-2 cursor-grab active:cursor-grabbing touch-none select-none">
-              <div className="w-10 h-1.5 rounded-full bg-slate-300 dark:bg-slate-600 hover:bg-slate-400 dark:hover:bg-slate-500 transition-colors" />
-            </div>
-
-            <div className="flex items-start justify-between cursor-grab active:cursor-grabbing select-none">
-              <div className="flex items-center gap-2">
-                <div className="p-2 rounded-2xl bg-amber-500 text-white shrink-0 shadow-md shadow-amber-500/30">
-                  <AlertTriangle className="w-4 h-4" />
-                </div>
-                <div>
-                  <span className="text-[10px] uppercase font-bold tracking-wider text-amber-600 dark:text-amber-400">
-                    {t.disruptionDetails}
-                  </span>
-                  <h3 className="text-sm font-bold text-slate-900 dark:text-white">
-                    {selectedDisruption.title}
-                  </h3>
-                </div>
+            {/* Top Bar / Drag Handle - Click to toggle collapse/expand or drag to move */}
+            <div
+              onClick={() => {
+                if (dragMovedRef.current) return;
+                haptic.selection();
+                setIsDisruptionCardCollapsed((prev) => !prev);
+              }}
+              className="group cursor-grab active:cursor-grabbing select-none -mx-1 -mt-1 px-1 pt-0.5 pb-1 rounded-2xl hover:bg-slate-500/5 dark:hover:bg-white/5 transition-colors"
+              title={
+                isDisruptionCardCollapsed
+                  ? language === 'de'
+                    ? 'Tippen zum Vergrößern • Ziehen zum Verschieben'
+                    : 'Tap to expand • Drag to move'
+                  : language === 'de'
+                  ? 'Tippen zum Verkleinern • Ziehen zum Verschieben'
+                  : 'Tap to collapse • Drag to move'
+              }
+            >
+              {/* iOS-style Drag Handle Bar */}
+              <div className="flex items-center justify-center pt-0.5 pb-1 pointer-events-none">
+                <div className="w-10 h-1.5 rounded-full bg-slate-300 dark:bg-slate-600 group-hover:bg-slate-400 dark:group-hover:bg-slate-500 transition-colors shadow-xs" />
               </div>
-              <button
-                onClick={() => {
-                  haptic.light();
-                  setSelectedDisruption(null);
-                }}
-                className="p-1 rounded-full text-slate-400 hover:text-slate-600 dark:hover:text-white"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
 
-            <div className="space-y-1.5 text-xs text-slate-700 dark:text-slate-300">
-              {METRO_LINES[selectedDisruption.lineId] && (
-                <div className="flex items-center gap-1.5">
-                  <span className="text-slate-400">{t.affectedLine}:</span>
-                  <span
-                    className="px-2 py-0.5 rounded text-[10px] font-bold text-white shadow-xs"
-                    style={{ backgroundColor: METRO_LINES[selectedDisruption.lineId]?.color }}
+              {/* Disruption Summary Bar */}
+              <div className="flex items-center justify-between gap-2 mt-0.5">
+                <div className="flex items-center gap-2 min-w-0 flex-1">
+                  <div className="p-1.5 rounded-xl bg-amber-500 text-white shrink-0 shadow-md shadow-amber-500/30">
+                    <AlertTriangle className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0 truncate">
+                    <span className="text-[10px] uppercase font-bold tracking-wider text-amber-600 dark:text-amber-400 block truncate">
+                      {t.disruptionDetails}
+                    </span>
+                    <h3 className="text-sm font-bold text-slate-900 dark:text-white truncate">
+                      {selectedDisruption.title}
+                    </h3>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      haptic.selection();
+                      setIsDisruptionCardCollapsed((prev) => !prev);
+                    }}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    className="p-1.5 rounded-full text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                    title={
+                      isDisruptionCardCollapsed
+                        ? language === 'de'
+                          ? 'Details einblenden'
+                          : 'Show details'
+                        : language === 'de'
+                        ? 'Minimieren'
+                        : 'Collapse'
+                    }
+                    aria-label="Toggle collapse"
                   >
-                    {METRO_LINES[selectedDisruption.lineId]?.badge}
-                  </span>
-                  <span className="font-semibold text-slate-800 dark:text-slate-200">
-                    {METRO_LINES[selectedDisruption.lineId]?.name}
-                  </span>
+                    <motion.div
+                      animate={{ rotate: isDisruptionCardCollapsed ? 0 : 180 }}
+                      transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+                    >
+                      <ChevronDown className="w-4 h-4 text-blue-500" />
+                    </motion.div>
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      haptic.light();
+                      setSelectedDisruption(null);
+                    }}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    className="p-1 rounded-full text-slate-400 hover:text-slate-600 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                    title={language === 'de' ? 'Schließen' : 'Close'}
+                    aria-label="Close"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
                 </div>
-              )}
-
-              <div className="flex items-center gap-1.5 font-medium">
-                <MapPin className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
-                <span>
-                  {STATIONS[selectedDisruption.fromStationId]?.name || selectedDisruption.fromStationId} ↔{' '}
-                  {STATIONS[selectedDisruption.toStationId]?.name || selectedDisruption.toStationId}
-                </span>
-              </div>
-
-              {selectedDisruption.description && (
-                <p className="p-2.5 rounded-xl bg-slate-100 dark:bg-slate-800/80 text-[11px] text-slate-600 dark:text-slate-300 italic">
-                  "{selectedDisruption.description}"
-                </p>
-              )}
-
-              <div className="flex items-center justify-between pt-1 text-[10px] text-slate-400 border-t border-slate-100 dark:border-slate-800">
-                <span>
-                  {selectedDisruption.reportedBy ? `Gemeldet von: ${selectedDisruption.reportedBy}` : 'Live gemeldet'}
-                </span>
-                <span>{selectedDisruption.confirmations} {t.confirmationsCount}</span>
               </div>
             </div>
 
-            {/* Public Community Actions */}
-            <div className="flex items-center gap-2 pt-1">
-              {onConfirmDisruption && (
-                <button
-                  onClick={() => {
-                    haptic.medium();
-                    onConfirmDisruption(selectedDisruption.id);
+            {/* Detailed Body Section (Visible when NOT collapsed) */}
+            <AnimatePresence initial={false}>
+              {!isDisruptionCardCollapsed && (
+                <motion.div
+                  key="disruption-details"
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  transition={{
+                    duration: 0.28,
+                    ease: [0.32, 0.72, 0, 1],
                   }}
-                  className="flex-1 py-2 px-3 rounded-2xl bg-amber-500 hover:bg-amber-600 active:scale-95 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-md shadow-amber-500/25 transition"
+                  className="overflow-hidden"
                 >
-                  <ThumbsUp className="w-3.5 h-3.5" />
-                  <span>{t.confirmDisruption} ({selectedDisruption.confirmations})</span>
-                </button>
-              )}
+                  <div
+                    className="space-y-3 pt-2.5 mt-2 border-t border-amber-200/40 dark:border-amber-900/40 max-h-[60vh] overflow-y-auto overscroll-contain pr-0.5"
+                    style={{ touchAction: 'pan-y' }}
+                    onPointerDown={(e) => e.stopPropagation()}
+                  >
+                  <div className="space-y-1.5 text-xs text-slate-700 dark:text-slate-300">
+                    {METRO_LINES[selectedDisruption.lineId] && (
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-slate-400">{t.affectedLine}:</span>
+                        <span
+                          className="px-2 py-0.5 rounded text-[10px] font-bold text-white shadow-xs"
+                          style={{ backgroundColor: METRO_LINES[selectedDisruption.lineId]?.color }}
+                        >
+                          {METRO_LINES[selectedDisruption.lineId]?.badge}
+                        </span>
+                        <span className="font-semibold text-slate-800 dark:text-slate-200">
+                          {METRO_LINES[selectedDisruption.lineId]?.name}
+                        </span>
+                      </div>
+                    )}
 
-              {onReportResolved && (
-                <button
-                  onClick={async () => {
-                    haptic.success();
-                    await onReportResolved(selectedDisruption.id);
-                    setSelectedDisruption(null);
-                  }}
-                  disabled={userResolvedIds.includes(selectedDisruption.id)}
-                  className={`flex-1 py-2 px-3 rounded-2xl font-bold text-xs flex items-center justify-center gap-1.5 border transition active:scale-95 ${
-                    userResolvedIds.includes(selectedDisruption.id)
-                      ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border-emerald-300 opacity-90'
-                      : 'bg-white dark:bg-slate-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800'
-                  }`}
-                  title={
-                    language === 'de'
-                      ? 'Wenn 10 Nutzer melden, dass die Störung behoben ist, wird sie automatisch gelöscht.'
-                      : 'When 10 users report this disruption is resolved, it will be automatically removed.'
-                  }
-                >
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                  <span>
-                    {userResolvedIds.includes(selectedDisruption.id)
-                      ? t.disruptionGoneReported
-                      : t.reportDisruptionGone}{' '}
-                    ({selectedDisruption.resolvedReports || 0}/10)
-                  </span>
-                </button>
-              )}
-            </div>
+                    <div className="flex items-center gap-1.5 font-medium">
+                      <MapPin className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                      <span>
+                        {STATIONS[selectedDisruption.fromStationId]?.name || selectedDisruption.fromStationId} ↔{' '}
+                        {STATIONS[selectedDisruption.toStationId]?.name || selectedDisruption.toStationId}
+                      </span>
+                    </div>
 
-            {/* Admin Management Controls: Edit & Delete Disruption */}
-            {isAdmin && (
-              <div className="pt-2 border-t border-amber-200/80 dark:border-amber-800/60 flex items-center justify-between gap-2">
-                <span className="text-[10px] font-extrabold uppercase tracking-wider text-rose-600 dark:text-rose-400 flex items-center gap-1">
-                  <ShieldCheck className="w-3.5 h-3.5" />
-                  <span>Admin</span>
-                </span>
-                <div className="flex items-center gap-2">
-                  {onEditDisruption && (
-                    <button
-                      onClick={() => {
-                        haptic.medium();
-                        const target = selectedDisruption;
-                        setSelectedDisruption(null);
-                        onEditDisruption(target);
-                      }}
-                      className="py-1.5 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 active:scale-95 text-slate-800 dark:text-slate-200 font-bold text-[11px] flex items-center gap-1.5 border border-slate-300 dark:border-slate-700 shadow-xs transition"
-                    >
-                      <Pencil className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-                      <span>{t.editDisruption}</span>
-                    </button>
+                    {selectedDisruption.description && (
+                      <p className="p-2.5 rounded-xl bg-slate-100 dark:bg-slate-800/80 text-[11px] text-slate-600 dark:text-slate-300 italic">
+                        "{selectedDisruption.description}"
+                      </p>
+                    )}
+
+                    <div className="flex items-center justify-between pt-1 text-[10px] text-slate-400 border-t border-slate-100 dark:border-slate-800">
+                      <span>
+                        {selectedDisruption.reportedBy ? `Gemeldet von: ${selectedDisruption.reportedBy}` : 'Live gemeldet'}
+                      </span>
+                      <span>{selectedDisruption.confirmations} {t.confirmationsCount}</span>
+                    </div>
+                  </div>
+
+                  {/* Public Community Actions */}
+                  <div className="flex items-center gap-2 pt-1">
+                    {onConfirmDisruption && (
+                      <button
+                        onClick={() => {
+                          haptic.medium();
+                          onConfirmDisruption(selectedDisruption.id);
+                        }}
+                        className="flex-1 py-2 px-3 rounded-2xl bg-amber-500 hover:bg-amber-600 active:scale-95 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-md shadow-amber-500/25 transition"
+                      >
+                        <ThumbsUp className="w-3.5 h-3.5" />
+                        <span>{t.confirmDisruption} ({selectedDisruption.confirmations})</span>
+                      </button>
+                    )}
+
+                    {onReportResolved && (
+                      <button
+                        onClick={async () => {
+                          haptic.success();
+                          await onReportResolved(selectedDisruption.id);
+                          setSelectedDisruption(null);
+                        }}
+                        disabled={userResolvedIds.includes(selectedDisruption.id)}
+                        className={`flex-1 py-2 px-3 rounded-2xl font-bold text-xs flex items-center justify-center gap-1.5 border transition active:scale-95 ${
+                          userResolvedIds.includes(selectedDisruption.id)
+                            ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border-emerald-300 opacity-90'
+                            : 'bg-white dark:bg-slate-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800'
+                        }`}
+                        title={
+                          language === 'de'
+                            ? 'Wenn 10 Nutzer melden, dass die Störung behoben ist, wird sie automatisch gelöscht.'
+                            : 'When 10 users report this disruption is resolved, it will be automatically removed.'
+                        }
+                      >
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                        <span>
+                          {userResolvedIds.includes(selectedDisruption.id)
+                            ? t.disruptionGoneReported
+                            : t.reportDisruptionGone}{' '}
+                          ({selectedDisruption.resolvedReports || 0}/10)
+                        </span>
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Admin Management Controls: Edit & Delete Disruption */}
+                  {isAdmin && (
+                    <div className="pt-2 border-t border-amber-200/80 dark:border-amber-800/60 flex items-center justify-between gap-2">
+                      <span className="text-[10px] font-extrabold uppercase tracking-wider text-rose-600 dark:text-rose-400 flex items-center gap-1">
+                        <ShieldCheck className="w-3.5 h-3.5" />
+                        <span>Admin</span>
+                      </span>
+                      <div className="flex items-center gap-2">
+                        {onEditDisruption && (
+                          <button
+                            onClick={() => {
+                              haptic.medium();
+                              const target = selectedDisruption;
+                              setSelectedDisruption(null);
+                              onEditDisruption(target);
+                            }}
+                            className="py-1.5 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 active:scale-95 text-slate-800 dark:text-slate-200 font-bold text-[11px] flex items-center gap-1.5 border border-slate-300 dark:border-slate-700 shadow-xs transition"
+                          >
+                            <Pencil className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                            <span>{t.editDisruption}</span>
+                          </button>
+                        )}
+                        {onDeleteDisruption && (
+                          <button
+                            onClick={() => {
+                              haptic.warning();
+                              setDisruptionToDelete(selectedDisruption);
+                            }}
+                            className="py-1.5 px-3 rounded-xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/50 active:scale-95 text-rose-600 dark:text-rose-400 font-bold text-[11px] flex items-center gap-1.5 border border-rose-200 dark:border-rose-900 shadow-xs transition cursor-pointer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>{language === 'de' ? 'Löschen' : 'Delete'}</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
                   )}
-                  {onDeleteDisruption && (
-                    <button
-                      onClick={() => {
-                        haptic.warning();
-                        setDisruptionToDelete(selectedDisruption);
-                      }}
-                      className="py-1.5 px-3 rounded-xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/50 active:scale-95 text-rose-600 dark:text-rose-400 font-bold text-[11px] flex items-center gap-1.5 border border-rose-200 dark:border-rose-900 shadow-xs transition cursor-pointer"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                      <span>{language === 'de' ? 'Löschen' : 'Delete'}</span>
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </motion.div>
         )}
       </AnimatePresence>
@@ -2584,146 +2916,307 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
       <AnimatePresence>
         {clickedStation && (
           <motion.div
+            key={clickedStation.id}
             drag
-            dragConstraints={containerRef}
-            dragElastic={0.08}
+            dragConstraints={false}
+            dragElastic={0}
             dragMomentum={false}
-            initial={{ y: 40, opacity: 0, scale: 0.96 }}
-            animate={{ y: 0, opacity: 1, scale: 1 }}
-            exit={{ y: 40, opacity: 0, scale: 0.96 }}
-            transition={{ type: 'spring', stiffness: 420, damping: 32 }}
-            className="absolute bottom-22 sm:bottom-24 md:bottom-4 right-3 sm:right-4 w-[calc(100%-1.5rem)] sm:w-84 max-w-sm max-h-[calc(100%-6.5rem)] overflow-y-auto z-45 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl border border-slate-200 dark:border-slate-700/80 rounded-3xl p-4 shadow-2xl space-y-2.5 cursor-default"
+            onDragStart={() => {
+              dragMovedRef.current = true;
+              setIsInfoCardDragging(true);
+              setIsDragging(false);
+            }}
+            onDragEnd={() => {
+              setIsInfoCardDragging(false);
+              setTimeout(() => {
+                dragMovedRef.current = false;
+              }, 120);
+            }}
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            transition={{
+              type: 'spring',
+              stiffness: 380,
+              damping: 32,
+            }}
+            style={{ touchAction: 'none' }}
+            className={`info-window-sheet absolute bottom-22 sm:bottom-24 md:bottom-4 right-3 sm:right-4 w-[calc(100%-1.5rem)] sm:w-84 max-w-sm overflow-hidden z-45 bg-white/95 dark:bg-slate-900/95 backdrop-blur-2xl border border-black/10 dark:border-white/15 rounded-3xl shadow-[0_16px_48px_rgba(0,0,0,0.22)] dark:shadow-[0_16px_48px_rgba(0,0,0,0.65)] p-3.5 select-none ${
+              isDragging ? 'pointer-events-none' : ''
+            }`}
             onClick={(e) => e.stopPropagation()}
-            onPointerDown={(e) => e.stopPropagation()}
-            onMouseDown={(e) => e.stopPropagation()}
-            onTouchStart={(e) => e.stopPropagation()}
           >
-            {/* iOS-style Drag Handle Bar */}
-            <div className="flex items-center justify-center -mt-1 -mb-1 pt-0.5 pb-2 cursor-grab active:cursor-grabbing touch-none select-none">
-              <div className="w-10 h-1.5 rounded-full bg-slate-300 dark:bg-slate-600 hover:bg-slate-400 dark:hover:bg-slate-500 transition-colors" />
-            </div>
+            {/* Top Bar / Drag Handle - Click to toggle collapse/expand or drag to move */}
+            <div
+              onClick={() => {
+                if (dragMovedRef.current) return;
+                haptic.selection();
+                setIsStationCardCollapsed((prev) => !prev);
+              }}
+              className="group cursor-grab active:cursor-grabbing select-none -mx-1 -mt-1 px-1 pt-0.5 pb-1 rounded-2xl hover:bg-slate-500/5 dark:hover:bg-white/5 transition-colors"
+              title={
+                isStationCardCollapsed
+                  ? language === 'de'
+                    ? 'Tippen zum Vergrößern • Ziehen zum Verschieben'
+                    : 'Tap to expand • Drag to move'
+                  : language === 'de'
+                  ? 'Tippen zum Verkleinern • Ziehen zum Verschieben'
+                  : 'Tap to collapse • Drag to move'
+              }
+            >
+              {/* iOS-style Drag Handle Bar */}
+              <div className="flex items-center justify-center pt-0.5 pb-1 pointer-events-none">
+                <div className="w-10 h-1.5 rounded-full bg-slate-300 dark:bg-slate-600 group-hover:bg-slate-400 dark:group-hover:bg-slate-500 transition-colors shadow-xs" />
+              </div>
 
-            <div className="flex items-start justify-between cursor-grab active:cursor-grabbing select-none">
-              <div>
-                <div className="flex items-center gap-1.5 flex-wrap mb-1">
-                  {clickedStation.lines.map((lId) => (
-                    <span
-                      key={lId}
-                      className="px-1.5 py-0.5 rounded text-[10px] font-bold text-white shadow-xs"
-                      style={{ backgroundColor: METRO_LINES[lId]?.color }}
-                    >
-                      {METRO_LINES[lId]?.badge}
-                    </span>
-                  ))}
-                  {clickedStation.hasAirport && (
-                    <span className="px-1.5 py-0.5 rounded bg-sky-100 dark:bg-sky-950 text-sky-700 dark:text-sky-400 border border-sky-300 dark:border-sky-800 text-[10px] font-medium">
-                      ✈ {t.airport}
-                    </span>
-                  )}
-                  {clickedStation.hasIC && (
-                    <span className="px-1.5 py-0.5 rounded bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-400 border border-rose-300 dark:border-rose-800 text-[10px] font-medium">
-                      🚆 IC-Züge
-                    </span>
-                  )}
-                  {clickedStation.isAccessible && (
-                    <span className="px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-800 text-[10px] font-medium">
-                      ♿ {t.accessible}
-                    </span>
-                  )}
-                </div>
-                <h3 className="text-base font-bold text-slate-900 dark:text-white">
-                  {clickedStation.name}
-                </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 line-clamp-2 select-text">
-                  {clickedStation.description}
-                </p>
-                {clickedStation.id === 'jurassic-park' && (
-                  <div className="mt-2 p-2 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-[10px] text-amber-800 dark:text-amber-300 font-medium flex items-center gap-1.5">
-                    <Train className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                    <span>
-                      {language === 'de'
-                        ? 'Wichtig: Bei Durchfahrt auf IC 10 ist ein Zugwechsel erforderlich (gleiche Linie).'
-                        : 'Notice: Change of trains required when passing through on IC 10 (same line).'}
-                    </span>
+              {/* Station Summary Bar (Header visible in both collapsed and expanded states) */}
+              <div className="flex items-center justify-between gap-2 mt-0.5">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                    {clickedStation.lines.map((lId) => (
+                      <span
+                        key={lId}
+                        className="px-1.5 py-0.5 rounded text-[10px] font-bold text-white shadow-xs"
+                        style={{ backgroundColor: METRO_LINES[lId]?.color }}
+                      >
+                        {METRO_LINES[lId]?.badge}
+                      </span>
+                    ))}
+                    {clickedStation.hasAirport && (
+                      <span className="px-1.5 py-0.5 rounded bg-sky-100 dark:bg-sky-950 text-sky-700 dark:text-sky-400 border border-sky-300 dark:border-sky-800 text-[10px] font-medium">
+                        ✈ {t.airport}
+                      </span>
+                    )}
+                    {clickedStation.hasIC && (
+                      <span className="px-1.5 py-0.5 rounded bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-400 border border-rose-300 dark:border-rose-800 text-[10px] font-medium">
+                        🚆 IC
+                      </span>
+                    )}
+                    {clickedStation.isAccessible && (
+                      <span className="px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-800 text-[10px] font-medium">
+                        ♿
+                      </span>
+                    )}
                   </div>
-                )}
-              </div>
-              <button
-                onClick={() => {
-                  haptic.light();
-                  setClickedStationId(null);
-                }}
-                onPointerDown={(e) => e.stopPropagation()}
-                className="text-slate-400 hover:text-slate-600 dark:hover:text-white p-1 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition"
-                title={language === 'de' ? 'Schließen' : 'Close'}
-                aria-label="Close"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {routePlanningEnabled ? (
-              <div className="mt-4 pt-3 border-t border-slate-200 dark:border-slate-800 space-y-2">
-                <div className="grid grid-cols-3 gap-1.5">
-                  <button
-                    onClick={() => {
-                      haptic.medium();
-                      onSetOrigin(clickedStation.id);
-                      setClickedStationId(null);
-                    }}
-                    className="flex flex-col items-center justify-center gap-1 py-2 px-1 rounded-xl bg-emerald-600/10 hover:bg-emerald-600/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-[11px] font-semibold transition active:scale-95"
-                  >
-                    <MapPin className="w-3.5 h-3.5" />
-                    <span>{t.startHere}</span>
-                  </button>
-
-                  {onSetStopover && (
-                    <button
-                      onClick={() => {
-                        haptic.medium();
-                        onSetStopover(clickedStation.id);
-                        setClickedStationId(null);
-                      }}
-                      className="flex flex-col items-center justify-center gap-1 py-2 px-1 rounded-xl bg-blue-600/10 hover:bg-blue-600/20 text-blue-600 dark:text-blue-400 border border-blue-500/20 text-[11px] font-semibold transition active:scale-95"
-                    >
-                      <PlusCircle className="w-3.5 h-3.5" />
-                      <span>{t.stopover}</span>
-                    </button>
-                  )}
-
-                  <button
-                    onClick={() => {
-                      haptic.medium();
-                      onSetDestination(clickedStation.id);
-                      setClickedStationId(null);
-                    }}
-                    className="flex flex-col items-center justify-center gap-1 py-2 px-1 rounded-xl bg-rose-600/10 hover:bg-rose-600/20 text-rose-600 dark:text-rose-400 border border-rose-500/20 text-[11px] font-semibold transition active:scale-95"
-                  >
-                    <ArrowRight className="w-3.5 h-3.5" />
-                    <span>{t.setAsDestination}</span>
-                  </button>
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white truncate">
+                    {clickedStation.name}
+                  </h3>
                 </div>
 
-                {activeRoute && onResetRoute && (
+                <div className="flex items-center gap-1 shrink-0">
                   <button
-                    onClick={() => {
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      haptic.selection();
+                      setIsStationCardCollapsed((prev) => !prev);
+                    }}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    className="p-1.5 rounded-full text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                    title={
+                      isStationCardCollapsed
+                        ? language === 'de'
+                          ? 'Details einblenden'
+                          : 'Show details'
+                        : language === 'de'
+                        ? 'Minimieren'
+                        : 'Collapse'
+                    }
+                    aria-label="Toggle collapse"
+                  >
+                    <motion.div
+                      animate={{ rotate: isStationCardCollapsed ? 0 : 180 }}
+                      transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+                    >
+                      <ChevronDown className="w-4 h-4 text-blue-500" />
+                    </motion.div>
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
                       haptic.light();
-                      onResetRoute();
                       setClickedStationId(null);
                     }}
-                    className="w-full py-1.5 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold flex items-center justify-center gap-1.5 transition"
+                    onPointerDown={(e) => e.stopPropagation()}
+                    className="text-slate-400 hover:text-slate-600 dark:hover:text-white p-1 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                    title={language === 'de' ? 'Schließen' : 'Close'}
+                    aria-label="Close"
                   >
-                    <RotateCcw className="w-3.5 h-3.5 text-rose-500" />
-                    <span>{language === 'de' ? 'Aktive Verbindung zurücksetzen' : 'Reset active route'}</span>
+                    <X className="w-4 h-4" />
                   </button>
-                )}
+                </div>
               </div>
-            ) : (
-              <div className="mt-3 pt-2.5 border-t border-slate-200 dark:border-slate-800 text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
-                <Info className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-                <span>{t.mapStationInfoOnly}</span>
-              </div>
-            )}
+            </div>
+
+            {/* Detailed Body Section (Visible when NOT collapsed) */}
+            <AnimatePresence initial={false}>
+              {!isStationCardCollapsed && (
+                <motion.div
+                  key="station-details"
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  transition={{
+                    duration: 0.28,
+                    ease: [0.32, 0.72, 0, 1],
+                  }}
+                  className="overflow-hidden"
+                >
+                  <div
+                    className="space-y-2.5 pt-2.5 mt-2 border-t border-slate-100 dark:border-slate-800/80 max-h-[60vh] overflow-y-auto overscroll-contain pr-0.5"
+                    style={{ touchAction: 'pan-y' }}
+                    onPointerDown={(e) => e.stopPropagation()}
+                  >
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 line-clamp-2 select-text">
+                    {clickedStation.description}
+                  </p>
+                  {clickedStation.id === 'jurassic-park' && (
+                    <div className="p-2 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-[10px] text-amber-800 dark:text-amber-300 font-medium flex items-center gap-1.5">
+                      <Train className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                      <span>
+                        {language === 'de'
+                          ? 'Wichtig: Bei Durchfahrt auf IC 10 ist ein Zugwechsel erforderlich (gleiche Linie).'
+                          : 'Notice: Change of trains required when passing through on IC 10 (same line).'}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Reported Disruptions for this Station & Lines */}
+                  {(() => {
+                    const stDisruptions = clickedStationDisruptions;
+
+                    if (stDisruptions.length === 0) {
+                      return (
+                        <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-[10px] text-emerald-700 dark:text-emerald-400 font-medium flex items-center gap-1.5">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                          <span>{t.noDisruptionsForStation}</span>
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div className="p-2.5 rounded-2xl bg-amber-500/10 dark:bg-amber-950/30 border border-amber-500/30 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-1.5 font-bold text-amber-700 dark:text-amber-400 text-xs">
+                            <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                            <span>
+                              {language === 'de' ? 'Gemeldete Störungen' : 'Reported Disruptions'} ({stDisruptions.length})
+                            </span>
+                          </div>
+                        </div>
+                        <div className="space-y-1.5">
+                          {stDisruptions.map((disrupt) => {
+                            const line = METRO_LINES[disrupt.lineId];
+                            const isObstruction =
+                              disrupt.type === 'closure' ||
+                              disrupt.type === 'construction' ||
+                              disrupt.type === 'missing_tracks';
+                            return (
+                              <div
+                                key={`st-disrupt-${disrupt.id}`}
+                                onClick={() => {
+                                  haptic.medium();
+                                  setSelectedDisruption(disrupt);
+                                  setIsDisruptionCardCollapsed(false);
+                                }}
+                                className="p-2 rounded-xl bg-white/90 dark:bg-zinc-800/90 border border-amber-200 dark:border-amber-900/60 flex items-center justify-between gap-2 cursor-pointer hover:bg-amber-50/80 dark:hover:bg-zinc-800 transition"
+                              >
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <span
+                                      className="px-1.5 py-0.5 rounded text-[9px] font-bold text-white shrink-0"
+                                      style={{ backgroundColor: line?.color || '#EF4444' }}
+                                    >
+                                      {line?.badge || disrupt.lineId}
+                                    </span>
+                                    <span
+                                      className={`px-1.5 py-0.2 rounded-full text-[9px] font-bold ${
+                                        isObstruction
+                                          ? 'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300'
+                                          : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                                      }`}
+                                    >
+                                      {getDisruptionTypeLabel(disrupt.type, language)}
+                                    </span>
+                                  </div>
+                                  <p className="text-[11px] font-semibold text-slate-800 dark:text-slate-200 truncate mt-0.5">
+                                    {disrupt.title}
+                                  </p>
+                                </div>
+                                <ChevronRight className="w-4 h-4 text-slate-400 shrink-0" />
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {routePlanningEnabled ? (
+                    <div className="mt-4 pt-3 border-t border-slate-200 dark:border-slate-800 space-y-2">
+                      <div className="grid grid-cols-3 gap-1.5">
+                        <button
+                          onClick={() => {
+                            haptic.medium();
+                            onSetOrigin(clickedStation.id);
+                            setClickedStationId(null);
+                          }}
+                          className="flex flex-col items-center justify-center gap-1 py-2 px-1 rounded-xl bg-emerald-600/10 hover:bg-emerald-600/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-[11px] font-semibold transition active:scale-95"
+                        >
+                          <MapPin className="w-3.5 h-3.5" />
+                          <span>{t.startHere}</span>
+                        </button>
+
+                        {onSetStopover && (
+                          <button
+                            onClick={() => {
+                              haptic.medium();
+                              onSetStopover(clickedStation.id);
+                              setClickedStationId(null);
+                            }}
+                            className="flex flex-col items-center justify-center gap-1 py-2 px-1 rounded-xl bg-blue-600/10 hover:bg-blue-600/20 text-blue-600 dark:text-blue-400 border border-blue-500/20 text-[11px] font-semibold transition active:scale-95"
+                          >
+                            <PlusCircle className="w-3.5 h-3.5" />
+                            <span>{t.stopover}</span>
+                          </button>
+                        )}
+
+                        <button
+                          onClick={() => {
+                            haptic.medium();
+                            onSetDestination(clickedStation.id);
+                            setClickedStationId(null);
+                          }}
+                          className="flex flex-col items-center justify-center gap-1 py-2 px-1 rounded-xl bg-rose-600/10 hover:bg-rose-600/20 text-rose-600 dark:text-rose-400 border border-rose-500/20 text-[11px] font-semibold transition active:scale-95"
+                        >
+                          <ArrowRight className="w-3.5 h-3.5" />
+                          <span>{t.setAsDestination}</span>
+                        </button>
+                      </div>
+
+                      {activeRoute && onResetRoute && (
+                        <button
+                          onClick={() => {
+                            haptic.light();
+                            onResetRoute();
+                            setClickedStationId(null);
+                          }}
+                          className="w-full py-1.5 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold flex items-center justify-center gap-1.5 transition"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5 text-rose-500" />
+                          <span>{language === 'de' ? 'Aktive Verbindung zurücksetzen' : 'Reset active route'}</span>
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="mt-3 pt-2.5 border-t border-slate-200 dark:border-slate-800 text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+                      <Info className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                      <span>{t.mapStationInfoOnly}</span>
+                    </div>
+                  )}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </motion.div>
         )}
       </AnimatePresence>
@@ -2732,151 +3225,309 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
       <AnimatePresence>
         {clickedLine && (
           <motion.div
+            key={clickedLine.id}
             drag
-            dragConstraints={containerRef}
-            dragElastic={0.08}
+            dragConstraints={false}
+            dragElastic={0}
             dragMomentum={false}
-            initial={{ y: 40, opacity: 0, scale: 0.96 }}
-            animate={{ y: 0, opacity: 1, scale: 1 }}
-            exit={{ y: 40, opacity: 0, scale: 0.96 }}
-            transition={{ type: 'spring', stiffness: 420, damping: 32 }}
-            className="absolute bottom-22 sm:bottom-24 md:bottom-4 right-3 sm:right-4 w-[calc(100%-1.5rem)] sm:w-96 max-w-sm sm:max-w-md max-h-[calc(100%-6.5rem)] overflow-y-auto z-45 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl border border-slate-200 dark:border-slate-700/80 rounded-3xl p-4 shadow-2xl space-y-3 cursor-default"
+            onDragStart={() => {
+              dragMovedRef.current = true;
+              setIsInfoCardDragging(true);
+              setIsDragging(false);
+            }}
+            onDragEnd={() => {
+              setIsInfoCardDragging(false);
+              setTimeout(() => {
+                dragMovedRef.current = false;
+              }, 120);
+            }}
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            transition={{
+              type: 'spring',
+              stiffness: 380,
+              damping: 32,
+            }}
+            style={{ touchAction: 'none' }}
+            className={`info-window-sheet absolute bottom-22 sm:bottom-24 md:bottom-4 right-3 sm:right-4 w-[calc(100%-1.5rem)] sm:w-96 max-w-sm sm:max-w-md overflow-hidden z-45 bg-white/95 dark:bg-slate-900/95 backdrop-blur-2xl border border-black/10 dark:border-white/15 rounded-3xl shadow-[0_16px_48px_rgba(0,0,0,0.22)] dark:shadow-[0_16px_48px_rgba(0,0,0,0.65)] p-3.5 select-none ${
+              isDragging ? 'pointer-events-none' : ''
+            }`}
             onClick={(e) => e.stopPropagation()}
-            onPointerDown={(e) => e.stopPropagation()}
-            onMouseDown={(e) => e.stopPropagation()}
-            onTouchStart={(e) => e.stopPropagation()}
           >
-            {/* iOS-style Drag Handle Bar */}
-            <div className="flex items-center justify-center -mt-1 -mb-1 pt-0.5 pb-2 cursor-grab active:cursor-grabbing touch-none select-none">
-              <div className="w-10 h-1.5 rounded-full bg-slate-300 dark:bg-slate-600 hover:bg-slate-400 dark:hover:bg-slate-500 transition-colors" />
-            </div>
+            {/* Top Bar / Drag Handle - Click to toggle collapse/expand or drag to move */}
+            <div
+              onClick={() => {
+                if (dragMovedRef.current) return;
+                haptic.selection();
+                setIsLineCardCollapsed((prev) => !prev);
+              }}
+              className="group cursor-grab active:cursor-grabbing select-none -mx-1 -mt-1 px-1 pt-0.5 pb-1 rounded-2xl hover:bg-slate-500/5 dark:hover:bg-white/5 transition-colors"
+              title={
+                isLineCardCollapsed
+                  ? language === 'de'
+                    ? 'Tippen zum Vergrößern • Ziehen zum Verschieben'
+                    : 'Tap to expand • Drag to move'
+                  : language === 'de'
+                  ? 'Tippen zum Verkleinern • Ziehen zum Verschieben'
+                  : 'Tap to collapse • Drag to move'
+              }
+            >
+              {/* iOS-style Drag Handle Bar */}
+              <div className="flex items-center justify-center pt-0.5 pb-1 pointer-events-none">
+                <div className="w-10 h-1.5 rounded-full bg-slate-300 dark:bg-slate-600 group-hover:bg-slate-400 dark:group-hover:bg-slate-500 transition-colors shadow-xs" />
+              </div>
 
-            <div className="flex items-start justify-between cursor-grab active:cursor-grabbing select-none">
-              <div className="flex items-center gap-2.5">
-                <span
-                  className="px-2.5 py-1 rounded-xl text-xs font-black shadow-xs tracking-wider shrink-0"
-                  style={{
-                    backgroundColor: clickedLine.color,
-                    color: clickedLine.textColor || '#FFFFFF',
-                  }}
-                >
-                  {clickedLine.badge}
-                </span>
-                <div>
-                  <h3 className="text-base font-bold text-slate-900 dark:text-white leading-tight">
-                    {clickedLine.name}
-                  </h3>
-                  <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 flex items-center gap-1 mt-0.5">
-                    {clickedLine.networkType === 'ic'
-                      ? '🚆 InterCity Express (IC)'
-                      : clickedLine.id === 'Tim-Train'
-                      ? '⭐ Sonderzug (Tim Train)'
-                      : clickedLine.networkType === 'planned'
-                      ? '🕒 In Planung (Zukunft)'
-                      : '🚇 U-Bahn Linie'}
+              {/* Line Summary Bar (Header visible in both collapsed and expanded states) */}
+              <div className="flex items-center justify-between gap-2 mt-0.5">
+                <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                  <span
+                    className="px-2.5 py-1 rounded-xl text-xs font-black shadow-xs tracking-wider shrink-0"
+                    style={{
+                      backgroundColor: clickedLine.color,
+                      color: clickedLine.textColor || '#FFFFFF',
+                    }}
+                  >
+                    {clickedLine.badge}
                   </span>
+                  <div className="min-w-0 truncate">
+                    <h3 className="text-base font-bold text-slate-900 dark:text-white leading-tight truncate">
+                      {clickedLine.name}
+                    </h3>
+                    <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 flex items-center gap-1 mt-0.5 truncate">
+                      {clickedLine.networkType === 'ic'
+                        ? '🚆 InterCity Express (IC)'
+                        : clickedLine.id === 'Tim-Train'
+                        ? '⭐ Sonderzug (Tim Train)'
+                        : clickedLine.networkType === 'planned'
+                        ? '🕒 In Planung (Zukunft)'
+                        : '🚇 U-Bahn Linie'}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      haptic.selection();
+                      setIsLineCardCollapsed((prev) => !prev);
+                    }}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    className="p-1.5 rounded-full text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                    title={
+                      isLineCardCollapsed
+                        ? language === 'de'
+                          ? 'Details einblenden'
+                          : 'Show details'
+                        : language === 'de'
+                        ? 'Minimieren'
+                        : 'Collapse'
+                    }
+                    aria-label="Toggle collapse"
+                  >
+                    <motion.div
+                      animate={{ rotate: isLineCardCollapsed ? 0 : 180 }}
+                      transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+                    >
+                      <ChevronDown className="w-4 h-4 text-blue-500" />
+                    </motion.div>
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      haptic.light();
+                      setClickedLineId(null);
+                    }}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    className="text-slate-400 hover:text-slate-700 dark:hover:text-white p-1 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                    title={language === 'de' ? 'Linien-Info schließen' : 'Close line info'}
+                    aria-label="Close"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
                 </div>
               </div>
-              <button
-                onClick={() => {
-                  haptic.light();
-                  setClickedLineId(null);
-                }}
-                onPointerDown={(e) => e.stopPropagation()}
-                className="text-slate-400 hover:text-slate-700 dark:hover:text-white p-1 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition"
-                title={language === 'de' ? 'Linien-Info schließen' : 'Close line info'}
-                aria-label="Close"
-              >
-                <X className="w-4 h-4" />
-              </button>
             </div>
 
-            {/* Terminals & Frequency */}
-            <div className="flex items-center justify-between text-xs py-2 px-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800">
-              <div className="flex items-center gap-1.5 text-slate-700 dark:text-slate-300 font-semibold truncate min-w-0">
-                <span className="text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-wider shrink-0">
-                  {language === 'de' ? 'Strecke:' : 'Route:'}
-                </span>
-                <span className="truncate">{clickedLine.terminals.join(' ↔ ')}</span>
-              </div>
-              {clickedLine.frequencyMinutes && (
-                <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950 px-2 py-0.5 rounded-full shrink-0 ml-2">
-                  ⏱ {language === 'de' ? `Alle ${clickedLine.frequencyMinutes} Min.` : `Every ${clickedLine.frequencyMinutes} min`}
-                </span>
-              )}
-            </div>
+            {/* Detailed Body Section (Visible when NOT collapsed) */}
+            <AnimatePresence initial={false}>
+              {!isLineCardCollapsed && (
+                <motion.div
+                  key="line-details"
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  transition={{
+                    duration: 0.28,
+                    ease: [0.32, 0.72, 0, 1],
+                  }}
+                  className="overflow-hidden"
+                >
+                  <div
+                    className="space-y-3 pt-2.5 mt-2 border-t border-slate-100 dark:border-slate-800/80 max-h-[60vh] overflow-y-auto overscroll-contain pr-0.5"
+                    style={{ touchAction: 'pan-y' }}
+                    onPointerDown={(e) => e.stopPropagation()}
+                  >
+                  {/* Terminals & Frequency */}
+                  <div className="flex items-center justify-between text-xs py-2 px-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800">
+                    <div className="flex items-center gap-1.5 text-slate-700 dark:text-slate-300 font-semibold truncate min-w-0">
+                      <span className="text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-wider shrink-0">
+                        {language === 'de' ? 'Strecke:' : 'Route:'}
+                      </span>
+                      <span className="truncate">{clickedLine.terminals.join(' ↔ ')}</span>
+                    </div>
+                    {clickedLine.frequencyMinutes && (
+                      <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950 px-2 py-0.5 rounded-full shrink-0 ml-2">
+                        ⏱ {language === 'de' ? `Alle ${clickedLine.frequencyMinutes} Min.` : `Every ${clickedLine.frequencyMinutes} min`}
+                      </span>
+                    )}
+                  </div>
 
-            {/* Detailed Line Description */}
-            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed select-text">
-              {clickedLine.description}
-            </p>
+                  {/* Reported Disruptions for this Line */}
+                  {(() => {
+                    const lDisruptions = clickedLineDisruptions;
 
-            {/* Served Stations List */}
-            <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                  {language === 'de' ? `Haltestellen (${clickedLine.stations.length})` : `Stations (${clickedLine.stations.length})`}
-                </span>
-                <span className="text-[9px] text-slate-400 dark:text-slate-500">
-                  {language === 'de' ? 'Tippen zum Fokussieren' : 'Tap to focus'}
-                </span>
-              </div>
-              <div
-                className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto pr-1 touch-pan-y"
-                onPointerDown={(e) => e.stopPropagation()}
-                onTouchStart={(e) => e.stopPropagation()}
-              >
-                {clickedLine.stations.map((stId, sIdx) => {
-                  const st = STATIONS[stId];
-                  if (!st) return null;
-                  return (
+                    if (lDisruptions.length === 0) {
+                      return (
+                        <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-[10px] text-emerald-700 dark:text-emerald-400 font-medium flex items-center gap-1.5">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                          <span>{t.noDisruptionsForLine}</span>
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div className="p-2.5 rounded-2xl bg-amber-500/10 dark:bg-amber-950/30 border border-amber-500/30 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-1.5 font-bold text-amber-700 dark:text-amber-400 text-xs">
+                            <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                            <span>
+                              {language === 'de' ? 'Aktive Störungen auf dieser Linie' : 'Active Disruptions on this Line'} ({lDisruptions.length})
+                            </span>
+                          </div>
+                        </div>
+                        <div className="space-y-1.5">
+                          {lDisruptions.map((disrupt) => {
+                            const isObstruction =
+                              disrupt.type === 'closure' ||
+                              disrupt.type === 'construction' ||
+                              disrupt.type === 'missing_tracks';
+                            return (
+                              <div
+                                key={`line-disrupt-${disrupt.id}`}
+                                onClick={() => {
+                                  haptic.medium();
+                                  setSelectedDisruption(disrupt);
+                                  setIsDisruptionCardCollapsed(false);
+                                }}
+                                className="p-2 rounded-xl bg-white/90 dark:bg-zinc-800/90 border border-amber-200 dark:border-amber-900/60 flex items-center justify-between gap-2 cursor-pointer hover:bg-amber-50/80 dark:hover:bg-zinc-800 transition"
+                              >
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <span
+                                      className={`px-1.5 py-0.2 rounded-full text-[9px] font-bold ${
+                                        isObstruction
+                                          ? 'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300'
+                                          : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                                      }`}
+                                    >
+                                      {getDisruptionTypeLabel(disrupt.type, language)}
+                                    </span>
+                                    <span className="text-[10px] text-slate-500 dark:text-slate-400">
+                                      {STATIONS[disrupt.fromStationId]?.name} ↔ {STATIONS[disrupt.toStationId]?.name}
+                                    </span>
+                                  </div>
+                                  <p className="text-[11px] font-semibold text-slate-800 dark:text-slate-200 truncate mt-0.5">
+                                    {disrupt.title}
+                                  </p>
+                                </div>
+                                <ChevronRight className="w-4 h-4 text-slate-400 shrink-0" />
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Detailed Line Description */}
+                  <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed select-text">
+                    {clickedLine.description}
+                  </p>
+
+                  {/* Served Stations List */}
+                  <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                        {language === 'de' ? `Haltestellen (${clickedLine.stations.length})` : `Stations (${clickedLine.stations.length})`}
+                      </span>
+                      <span className="text-[9px] text-slate-400 dark:text-slate-500">
+                        {language === 'de' ? 'Tippen zum Fokussieren' : 'Tap to focus'}
+                      </span>
+                    </div>
+                    <div
+                      className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto pr-1 touch-pan-y"
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onTouchStart={(e) => e.stopPropagation()}
+                    >
+                      {clickedLine.stations.map((stId, sIdx) => {
+                        const st = STATIONS[stId];
+                        if (!st) return null;
+                        return (
+                          <button
+                            key={stId}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              haptic.selection();
+                              setClickedStationId(stId);
+                              setClickedLineId(null);
+                              setIsStationCardCollapsed(false);
+                              onSelectStation(stId);
+                            }}
+                            onPointerDown={(e) => e.stopPropagation()}
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-100 hover:bg-blue-50 dark:bg-slate-800 dark:hover:bg-blue-950/40 text-slate-700 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 text-[11px] font-medium border border-transparent hover:border-blue-200 dark:hover:border-blue-800 transition active:scale-95"
+                          >
+                            <span className="text-[9px] text-slate-400 font-bold">{sIdx + 1}.</span>
+                            <span>{st.name}</span>
+                            {st.hasAirport && <span className="text-[9px]">✈</span>}
+                            {st.hasIC && <span className="text-[9px]">🚆</span>}
+                            {st.isAccessible && <span className="text-[9px]">♿</span>}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Quick Actions Footer */}
+                  <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center gap-2">
                     <button
-                      key={stId}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        haptic.selection();
-                        setClickedStationId(stId);
-                        onSelectStation(stId);
+                      onClick={() => {
+                        haptic.light();
+                        setClickedLineId(null);
                       }}
                       onPointerDown={(e) => e.stopPropagation()}
-                      className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-100 hover:bg-blue-50 dark:bg-slate-800 dark:hover:bg-blue-950/40 text-slate-700 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 text-[11px] font-medium border border-transparent hover:border-blue-200 dark:hover:border-blue-800 transition active:scale-95"
+                      className="flex-1 py-1.5 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold flex items-center justify-center gap-1.5 transition active:scale-95"
                     >
-                      <span className="text-[9px] text-slate-400 font-bold">{sIdx + 1}.</span>
-                      <span>{st.name}</span>
-                      {st.hasAirport && <span className="text-[9px]">✈</span>}
-                      {st.hasIC && <span className="text-[9px]">🚆</span>}
-                      {st.isAccessible && <span className="text-[9px]">♿</span>}
+                      <span>{language === 'de' ? 'Hervorhebung aufheben' : 'Clear highlight'}</span>
                     </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Quick Actions Footer */}
-            <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center gap-2">
-              <button
-                onClick={() => {
-                  haptic.light();
-                  setClickedLineId(null);
-                }}
-                onPointerDown={(e) => e.stopPropagation()}
-                className="flex-1 py-1.5 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold flex items-center justify-center gap-1.5 transition active:scale-95"
-              >
-                <span>{language === 'de' ? 'Hervorhebung aufheben' : 'Clear highlight'}</span>
-              </button>
-              {onSelectLineFilter && (
-                <button
-                  onClick={() => {
-                    haptic.medium();
-                    onSelectLineFilter(clickedLine.id);
-                  }}
-                  onPointerDown={(e) => e.stopPropagation()}
-                  className="py-1.5 px-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold transition active:scale-95 shadow-xs"
-                >
-                  {language === 'de' ? 'Linie filtern' : 'Filter line'}
-                </button>
+                    {onSelectLineFilter && (
+                      <button
+                        onClick={() => {
+                          haptic.medium();
+                          onSelectLineFilter(clickedLine.id);
+                        }}
+                        onPointerDown={(e) => e.stopPropagation()}
+                        className="py-1.5 px-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold transition active:scale-95 shadow-xs"
+                      >
+                        {language === 'de' ? 'Linie filtern' : 'Filter line'}
+                      </button>
+                    )}
+                  </div>
+                  </div>
+                </motion.div>
               )}
-            </div>
+            </AnimatePresence>
           </motion.div>
         )}
       </AnimatePresence>

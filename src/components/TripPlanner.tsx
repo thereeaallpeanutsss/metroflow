@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Station, RouteOption, LineId, SavedJourney, RoutePreference, Disruption, RecentRoute } from '../types/metro';
 import { STATIONS, METRO_LINES } from '../data/metroData';
-import { Language, translations } from '../utils/i18n';
+import { Language, translations, getDisruptionTypeLabel } from '../utils/i18n';
 import { haptic } from '../utils/haptics';
 import {
   ArrowUpDown,
@@ -15,6 +15,7 @@ import {
   Share2,
   Check,
   CornerDownRight,
+  ExternalLink,
   Bookmark,
   BookmarkCheck,
   Plus,
@@ -107,6 +108,16 @@ export const TripPlanner: React.FC<TripPlannerProps> = ({
   const [showStopoverInput, setShowStopoverInput] = useState(!!stopoverId);
   const [isDisruptionIgnored, setIsDisruptionIgnored] = useState(false);
   const [showIgnoreConfirmModal, setShowIgnoreConfirmModal] = useState(false);
+  const [selectedDisruptionForModal, setSelectedDisruptionForModal] = useState<Disruption | null>(null);
+
+  const isTrackObstruction = (d: Disruption) =>
+    d.type === 'closure' ||
+    d.type === 'construction' ||
+    d.type === 'missing_tracks' ||
+    d.title.toLowerCase().includes('sperrung') ||
+    d.title.toLowerCase().includes('wartung') ||
+    d.title.toLowerCase().includes('closure') ||
+    d.title.toLowerCase().includes('maintenance');
 
   useEffect(() => {
     setIsDisruptionIgnored(false);
@@ -166,7 +177,7 @@ export const TripPlanner: React.FC<TripPlannerProps> = ({
     haptic.selection();
     setExpandedLegs((prev) => ({
       ...prev,
-      [legIndex]: !prev[legIndex],
+      [legIndex]: prev[legIndex] !== undefined ? !prev[legIndex] : false,
     }));
   };
 
@@ -799,109 +810,246 @@ export const TripPlanner: React.FC<TripPlannerProps> = ({
 
       {/* Active Route Disruption Alert & Bypass Route Planner */}
       {activeRoute && activeRoute.affectedDisruptions && activeRoute.affectedDisruptions.length > 0 && !avoidDisruptions && (
-        !isDisruptionIgnored ? (
-          <div className="bg-amber-50 dark:bg-amber-950/40 border-2 border-amber-500/60 dark:border-amber-500/50 rounded-3xl p-4 shadow-xl space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex items-start gap-2.5">
-                <div className="p-2 rounded-2xl bg-amber-500 text-white shrink-0 shadow-md shadow-amber-500/30">
-                  <AlertTriangle className="w-5 h-5" />
+        !isDisruptionIgnored ? (() => {
+          const hasImpassable = activeRoute.affectedDisruptions.some(isTrackObstruction);
+
+          if (hasImpassable) {
+            return (
+              <div className="bg-rose-50 dark:bg-rose-950/40 border-2 border-rose-500/60 dark:border-rose-500/50 rounded-3xl p-4 shadow-xl space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start gap-2.5">
+                    <div className="p-2 rounded-2xl bg-rose-600 text-white shrink-0 shadow-md shadow-rose-600/30">
+                      <Ban className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-bold text-rose-950 dark:text-rose-100 flex items-center gap-1.5">
+                        <span>
+                          {language === 'de'
+                            ? 'Warnung: Diese Route ist unpassierbar!'
+                            : 'Warning: This planned route is impossible to use!'}
+                        </span>
+                      </h3>
+                      <p className="text-[11px] text-rose-800 dark:text-rose-300 mt-0.5">
+                        {language === 'de'
+                          ? 'Aufgrund von Streckensperrung oder Gleisarbeiten kann dieser Streckenabschnitt nicht befahren werden.'
+                          : 'Due to track maintenance or track closure, this itinerary is blocked and cannot be used.'}
+                      </p>
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  <h3 className="text-sm font-bold text-amber-950 dark:text-amber-100 flex items-center gap-1.5">
-                    <span>{t.disruptionOnYourRoute}</span>
-                  </h3>
-                  <p className="text-[11px] text-amber-800 dark:text-amber-300 mt-0.5">
-                    {language === 'de'
-                      ? 'Auf dieser Route liegt mindestens eine gemeldete Streckenstörung vor.'
-                      : 'At least one active track disruption affects this itinerary.'}
-                  </p>
+
+                {/* List of disruptions affecting this route */}
+                <div className="space-y-2 pt-1">
+                  {activeRoute.affectedDisruptions.map((disrupt) => {
+                    const line = METRO_LINES[disrupt.lineId];
+                    const fromName = STATIONS[disrupt.fromStationId]?.name || disrupt.fromStationId;
+                    const toName = STATIONS[disrupt.toStationId]?.name || disrupt.toStationId;
+                    const isObs = isTrackObstruction(disrupt);
+
+                    return (
+                      <div
+                        key={disrupt.id}
+                        className="p-3 rounded-2xl bg-white/90 dark:bg-slate-900/90 border border-rose-200 dark:border-rose-800/60 text-xs space-y-2 shadow-xs"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 font-bold text-slate-900 dark:text-white">
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                isObs
+                                  ? 'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300'
+                                  : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                              }`}
+                            >
+                              {getDisruptionTypeLabel(disrupt.type, language)}
+                            </span>
+                            <span>{disrupt.title}</span>
+                          </div>
+
+                          <div className="flex items-center gap-1.5">
+                            {line && (
+                              <span
+                                className="px-2 py-0.5 rounded text-[10px] font-bold text-white shadow-xs shrink-0"
+                                style={{ backgroundColor: line.color }}
+                              >
+                                {line.badge}
+                              </span>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                haptic.light();
+                                setSelectedDisruptionForModal(disrupt);
+                              }}
+                              className="px-2 py-1 rounded-lg bg-rose-100 hover:bg-rose-200 dark:bg-rose-900/50 dark:hover:bg-rose-900 text-rose-800 dark:text-rose-200 text-[10px] font-bold flex items-center gap-1 shrink-0 transition"
+                              title={language === 'de' ? 'Störungsdetails' : 'Disruption details'}
+                            >
+                              <span>{language === 'de' ? 'Details' : 'Details'}</span>
+                              <ExternalLink className="w-3 h-3" />
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1 text-[11px] text-slate-600 dark:text-slate-300 font-medium">
+                          <MapPin className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400 shrink-0" />
+                          <span>
+                            {fromName} ↔ {toName}
+                          </span>
+                          <span className="text-slate-400">•</span>
+                          <span className="text-[10px] text-slate-500 dark:text-slate-400">
+                            {disrupt.confirmations} {t.confirmationsCount}
+                          </span>
+                        </div>
+
+                        {disrupt.description && (
+                          <p className="text-[11px] text-slate-600 dark:text-slate-400 italic">
+                            "{disrupt.description}"
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Actions: Calculate alternative route OR ignore disruption */}
+                <div className="pt-1 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <button
+                    onClick={() => {
+                      haptic.medium();
+                      onToggleAvoidDisruptions(true);
+                    }}
+                    className="py-2.5 px-3 rounded-2xl bg-rose-600 hover:bg-rose-700 active:scale-98 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-rose-600/30 transition"
+                  >
+                    <RefreshCw className="w-4 h-4 shrink-0" />
+                    <span className="truncate">{language === 'de' ? 'Alternativroute berechnen' : 'Calculate alternate route'}</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      haptic.warning();
+                      setShowIgnoreConfirmModal(true);
+                    }}
+                    className="py-2.5 px-3 rounded-2xl bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 active:scale-98 text-slate-700 dark:text-slate-200 font-bold text-xs flex items-center justify-center gap-2 border border-slate-300 dark:border-slate-700 transition"
+                  >
+                    <ShieldAlert className="w-4 h-4 text-amber-500 shrink-0" />
+                    <span className="truncate">{t.ignoreDisruption}</span>
+                  </button>
                 </div>
               </div>
-            </div>
+            );
+          }
 
-            {/* List of disruptions affecting this route */}
-            <div className="space-y-2 pt-1">
-              {activeRoute.affectedDisruptions.map((disrupt) => {
-                const line = METRO_LINES[disrupt.lineId];
-                const fromName = STATIONS[disrupt.fromStationId]?.name || disrupt.fromStationId;
-                const toName = STATIONS[disrupt.toStationId]?.name || disrupt.toStationId;
+          // General disruption alert
+          return (
+            <div className="bg-amber-50 dark:bg-amber-950/40 border-2 border-amber-500/60 dark:border-amber-500/50 rounded-3xl p-4 shadow-xl space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start gap-2.5">
+                  <div className="p-2 rounded-2xl bg-amber-500 text-white shrink-0 shadow-md shadow-amber-500/30">
+                    <AlertTriangle className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-amber-950 dark:text-amber-100 flex items-center gap-1.5">
+                      <span>{t.disruptionOnYourRoute}</span>
+                    </h3>
+                    <p className="text-[11px] text-amber-800 dark:text-amber-300 mt-0.5">
+                      {language === 'de'
+                        ? 'Auf dieser Route liegt mindestens eine gemeldete Streckenstörung vor.'
+                        : 'At least one active track disruption affects this itinerary.'}
+                    </p>
+                  </div>
+                </div>
+              </div>
 
-                return (
-                  <div
-                    key={disrupt.id}
-                    className="p-3 rounded-2xl bg-white/80 dark:bg-slate-900/80 border border-amber-200 dark:border-amber-800/60 text-xs space-y-1.5 shadow-xs"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2 font-bold text-slate-900 dark:text-white">
-                        {disrupt.type === 'inactive_redstone' ? (
-                          <ZapOff className="w-4 h-4 text-rose-500" />
-                        ) : disrupt.type === 'empty_minecart' ? (
-                          <ShoppingBag className="w-4 h-4 text-purple-500" />
-                        ) : disrupt.type === 'closure' ? (
-                          <Ban className="w-4 h-4 text-red-500" />
-                        ) : (
-                          <AlertTriangle className="w-4 h-4 text-amber-500" />
-                        )}
-                        <span>{disrupt.title}</span>
+              {/* List of disruptions affecting this route */}
+              <div className="space-y-2 pt-1">
+                {activeRoute.affectedDisruptions.map((disrupt) => {
+                  const line = METRO_LINES[disrupt.lineId];
+                  const fromName = STATIONS[disrupt.fromStationId]?.name || disrupt.fromStationId;
+                  const toName = STATIONS[disrupt.toStationId]?.name || disrupt.toStationId;
+
+                  return (
+                    <div
+                      key={disrupt.id}
+                      className="p-3 rounded-2xl bg-white/80 dark:bg-slate-900/80 border border-amber-200 dark:border-amber-800/60 text-xs space-y-1.5 shadow-xs"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 font-bold text-slate-900 dark:text-white">
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+                            {getDisruptionTypeLabel(disrupt.type, language)}
+                          </span>
+                          <span>{disrupt.title}</span>
+                        </div>
+
+                        <div className="flex items-center gap-1.5">
+                          {line && (
+                            <span
+                              className="px-2 py-0.5 rounded text-[10px] font-bold text-white shadow-xs shrink-0"
+                              style={{ backgroundColor: line.color }}
+                            >
+                              {line.badge}
+                            </span>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              haptic.light();
+                              setSelectedDisruptionForModal(disrupt);
+                            }}
+                            className="px-2 py-1 rounded-lg bg-amber-100 hover:bg-amber-200 dark:bg-amber-900/50 dark:hover:bg-amber-900 text-amber-800 dark:text-amber-200 text-[10px] font-bold flex items-center gap-1 shrink-0 transition"
+                          >
+                            <span>{language === 'de' ? 'Details' : 'Details'}</span>
+                            <ExternalLink className="w-3 h-3" />
+                          </button>
+                        </div>
                       </div>
 
-                      {line && (
-                        <span
-                          className="px-2 py-0.5 rounded text-[10px] font-bold text-white shadow-xs shrink-0"
-                          style={{ backgroundColor: line.color }}
-                        >
-                          {line.badge}
+                      <div className="flex items-center gap-1 text-[11px] text-slate-600 dark:text-slate-300 font-medium">
+                        <MapPin className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                        <span>
+                          {fromName} ↔ {toName}
                         </span>
+                        <span className="text-slate-400">•</span>
+                        <span className="text-[10px] text-slate-500 dark:text-slate-400">
+                          {disrupt.confirmations} {t.confirmationsCount}
+                        </span>
+                      </div>
+
+                      {disrupt.description && (
+                        <p className="text-[11px] text-slate-600 dark:text-slate-400 italic">
+                          "{disrupt.description}"
+                        </p>
                       )}
                     </div>
+                  );
+                })}
+              </div>
 
-                    <div className="flex items-center gap-1 text-[11px] text-slate-600 dark:text-slate-300 font-medium">
-                      <MapPin className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
-                      <span>
-                        {fromName} ↔ {toName}
-                      </span>
-                      <span className="text-slate-400">•</span>
-                      <span className="text-[10px] text-slate-500 dark:text-slate-400">
-                        {disrupt.confirmations} {t.confirmationsCount}
-                      </span>
-                    </div>
+              {/* Actions: Calculate alternative route OR ignore disruption */}
+              <div className="pt-1 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <button
+                  onClick={() => {
+                    haptic.medium();
+                    onToggleAvoidDisruptions(true);
+                  }}
+                  className="py-2.5 px-3 rounded-2xl bg-amber-600 hover:bg-amber-700 active:scale-98 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-amber-600/30 transition"
+                >
+                  <RefreshCw className="w-4 h-4 shrink-0" />
+                  <span className="truncate">{t.planAlternativeRoute}</span>
+                </button>
 
-                    {disrupt.description && (
-                      <p className="text-[11px] text-slate-600 dark:text-slate-400 italic">
-                        "{disrupt.description}"
-                      </p>
-                    )}
-                  </div>
-                );
-              })}
+                <button
+                  onClick={() => {
+                    haptic.warning();
+                    setShowIgnoreConfirmModal(true);
+                  }}
+                  className="py-2.5 px-3 rounded-2xl bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 active:scale-98 text-slate-700 dark:text-slate-200 font-bold text-xs flex items-center justify-center gap-2 border border-slate-300 dark:border-slate-700 transition"
+                >
+                  <ShieldAlert className="w-4 h-4 text-amber-500 shrink-0" />
+                  <span className="truncate">{t.ignoreDisruption}</span>
+                </button>
+              </div>
             </div>
-
-            {/* Actions: Calculate alternative route OR ignore disruption */}
-            <div className="pt-1 grid grid-cols-1 sm:grid-cols-2 gap-2">
-              <button
-                onClick={() => {
-                  haptic.medium();
-                  onToggleAvoidDisruptions(true);
-                }}
-                className="py-2.5 px-3 rounded-2xl bg-amber-600 hover:bg-amber-700 active:scale-98 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-amber-600/30 transition"
-              >
-                <RefreshCw className="w-4 h-4 shrink-0" />
-                <span className="truncate">{t.planAlternativeRoute}</span>
-              </button>
-
-              <button
-                onClick={() => {
-                  haptic.warning();
-                  setShowIgnoreConfirmModal(true);
-                }}
-                className="py-2.5 px-3 rounded-2xl bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 active:scale-98 text-slate-700 dark:text-slate-200 font-bold text-xs flex items-center justify-center gap-2 border border-slate-300 dark:border-slate-700 transition"
-              >
-                <ShieldAlert className="w-4 h-4 text-amber-500 shrink-0" />
-                <span className="truncate">{t.ignoreDisruption}</span>
-              </button>
-            </div>
-          </div>
-        ) : (
+          );
+        })() : (
           <div className="p-3.5 rounded-3xl bg-amber-500/10 border border-amber-500/30 text-amber-900 dark:text-amber-200 text-xs flex items-center justify-between shadow-sm animate-in fade-in duration-150">
             <div className="flex items-center gap-2">
               <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
@@ -1156,6 +1304,15 @@ export const TripPlanner: React.FC<TripPlannerProps> = ({
               const isStopoverReached = stopoverId && leg.toStationId === stopoverId;
               const isIC = leg.lineId.startsWith('IC');
 
+              // Compute real line direction terminus based on travel vector
+              const idxFrom = line?.stations.indexOf(leg.fromStationId) ?? -1;
+              const idxTo = line?.stations.indexOf(leg.toStationId) ?? -1;
+              let directionTerminus = line?.terminals[1] || '';
+              if (line && line.stations && idxFrom !== -1 && idxTo !== -1) {
+                const termId = idxTo >= idxFrom ? line.stations[line.stations.length - 1] : line.stations[0];
+                directionTerminus = STATIONS[termId]?.name || termId;
+              }
+
               // Find any disruptions that affect this specific leg
               const legDisruptions = disruptions.filter((d) => {
                 if (d.lineId !== leg.lineId) return false;
@@ -1197,7 +1354,7 @@ export const TripPlanner: React.FC<TripPlannerProps> = ({
                           <span>{line?.name}</span>
                         </span>
                         <span className="text-xs text-slate-500 dark:text-slate-400">
-                          {t.direction} {line?.terminals[1]}
+                          {t.direction} {directionTerminus}
                         </span>
                       </div>
                     </div>

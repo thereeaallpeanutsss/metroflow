@@ -25,9 +25,22 @@ export const TRACK_SEGMENTS: Record<string, Point[]> = {
     { x: 340, y: 518 },
     { x: 340, y: 568 },
   ],
-  'U-Grün:carl-station:strand': [
+  'U-Grün:carl-station:kellrods-airp': [
     { x: 340, y: 568 },
-    { x: 340, y: 678 },
+    { x: 405, y: 568 },
+    { x: 405, y: 532 },
+  ],
+  'U-Grün:kellrods-airp:central-station': [
+    { x: 405, y: 532 },
+    { x: 455, y: 532 },
+  ],
+  'U-Grün:central-station:airport-hotel': [
+    { x: 455, y: 532 },
+    { x: 455, y: 604 },
+    { x: 405, y: 604 },
+  ],
+  'U-Grün:airport-hotel:strand': [
+    { x: 405, y: 604 },
     { x: 405, y: 678 },
   ],
   'U-Grün:strand:messehalle-1-2': [
@@ -163,28 +176,6 @@ export const TRACK_SEGMENTS: Record<string, Point[]> = {
     { x: 485, y: 478 },
   ],
 
-  // ================= U5 (U-Blau) =================
-  'U-Blau:daniel-tower:badesee': [
-    { x: 346, y: 335 },
-    { x: 346, y: 518 },
-  ],
-  'U-Blau:badesee:carl-station': [
-    { x: 346, y: 518 },
-    { x: 346, y: 568 },
-  ],
-  'U-Blau:carl-station:airport-hotel': [
-    { x: 346, y: 568 },
-    { x: 346, y: 604 },
-    { x: 405, y: 604 },
-  ],
-  'U-Blau:airport-hotel:kellrods-airp': [
-    { x: 405, y: 604 },
-    { x: 405, y: 532 },
-  ],
-  'U-Blau:kellrods-airp:central-station': [
-    { x: 405, y: 532 },
-    { x: 455, y: 532 },
-  ],
 
   // ================= IC 7 (U-Türkis) =================
   'U-Türkis:gare-du-nord:zoo': [

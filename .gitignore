@@ -1,8 +1,16 @@
 node_modules/
 build/
 dist/
+docs/
 coverage/
 .DS_Store
 *.log
 .env*
 !.env.example
+
+# Exclude large chat media attachments that exceed GitHub API single commit payload limits
+*.mov
+*.mp4
+public/assets/aistudio/*.mov
+public/assets/aistudio/*.mp4
+

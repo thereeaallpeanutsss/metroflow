@@ -33,7 +33,35 @@
           }
         } catch(e) {}
 
-        // Suppress Vite HMR WebSocket connection warnings in sandboxed iframe preview
+        // Suppress Vite HMR WebSocket connection warnings & unhandled rejections in sandboxed iframe preview
+        window.addEventListener('unhandledrejection', function(event) {
+          var reason = event.reason;
+          var msg = (reason && (reason.message || reason.stack || String(reason))) || '';
+          if (
+            msg.indexOf('WebSocket') !== -1 ||
+            msg.indexOf('vite') !== -1 ||
+            (reason && reason.stack && reason.stack.indexOf('@vite/client') !== -1)
+          ) {
+            event.preventDefault();
+            event.stopImmediatePropagation && event.stopImmediatePropagation();
+            return;
+          }
+        });
+
+        window.addEventListener('error', function(event) {
+          var msg = (event.message || (event.error && event.error.message) || '') + '';
+          var src = (event.filename || '') + '';
+          if (
+            msg.indexOf('WebSocket') !== -1 ||
+            src.indexOf('@vite/client') !== -1 ||
+            msg.indexOf('[vite]') !== -1
+          ) {
+            event.preventDefault();
+            event.stopImmediatePropagation && event.stopImmediatePropagation();
+            return;
+          }
+        });
+
         var origWarn = console.warn;
         var origError = console.error;
         console.warn = function() {
@@ -62,6 +90,9 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="MetroFlow" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
     <link rel="icon" type="image/svg+xml" href="./icon.svg" />
     <link rel="apple-touch-icon" href="./icon.svg" />
   </head>

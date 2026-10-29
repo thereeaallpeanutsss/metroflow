@@ -3,7 +3,6 @@ export type MetroLineId =
   | 'U-Rot'
   | 'U-Schwarz'
   | 'U-Orange'
-  | 'U-Blau'
   | 'U-Hellgrün'
   | 'U-Türkis'
   | 'U-Pink'

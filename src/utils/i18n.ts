@@ -214,6 +214,13 @@ export interface Translations {
   tabBarStyleDesc: string;
   tabBarStyleIOS26: string;
   tabBarStyleClassic: string;
+  uiDesignSetting: string;
+  uiDesignDesc: string;
+  uiDesignClassic: string;
+  uiDesignIOS: string;
+  uiDesignIOSBadge: string;
+  uiDesignMinecraft: string;
+  uiDesignMinecraftBadge: string;
   startupDisruptionOverview: string;
   startupDisruptionOverviewDesc: string;
   refreshDataButton: string;
@@ -222,6 +229,14 @@ export interface Translations {
   refreshingData: string;
   syncServerSetting: string;
   syncServerDesc: string;
+  routeImpassableWarning: string;
+  routeImpassableDesc: string;
+  calculateAlternateRoute: string;
+  viewDisruptionDetails: string;
+  reportedDisruptionsForStation: string;
+  reportedDisruptionsForLine: string;
+  noDisruptionsForStation: string;
+  noDisruptionsForLine: string;
 }
 
 export const translations: Record<Language, Translations> = {
@@ -439,6 +454,13 @@ export const translations: Record<Language, Translations> = {
     tabBarStyleDesc: 'Wähle zwischen dem schwebenden iOS 26 Glas-Dock und der klassischen Leiste.',
     tabBarStyleIOS26: 'iOS 26 Glas-Dock',
     tabBarStyleClassic: 'Klassische Leiste',
+    uiDesignSetting: 'Benutzeroberfläche & Design',
+    uiDesignDesc: 'Wähle zwischen dem klassischen MetroFlow Design und dem komplett überarbeiteten iOS-Design (iOS Neo).',
+    uiDesignClassic: 'MetroFlow Klassisch',
+    uiDesignIOS: 'iOS Overhaul',
+    uiDesignIOSBadge: 'iOS Design',
+    uiDesignMinecraft: 'Minecraft Edition',
+    uiDesignMinecraftBadge: 'Minecraft Bedrock',
     startupDisruptionOverview: 'Störungsübersicht beim App-Start',
     startupDisruptionOverviewDesc: 'Zeigt beim Starten der App automatisch ein kompaktes Lagebild aller aktuellen Störungen an.',
     refreshDataButton: 'Daten jetzt aktualisieren',
@@ -447,6 +469,14 @@ export const translations: Record<Language, Translations> = {
     refreshingData: 'Aktualisiere...',
     syncServerSetting: 'Online-Synchronisation',
     syncServerDesc: 'Synchronisiert Störungen und Artikel in Echtzeit geräteübergreifend.',
+    routeImpassableWarning: 'Verbindung unpassierbar',
+    routeImpassableDesc: 'Diese Verbindung ist wegen Streckensperrung oder Gleisbauarbeiten derzeit unpassierbar!',
+    calculateAlternateRoute: 'Alternative Route berechnen',
+    viewDisruptionDetails: 'Details zur Störung',
+    reportedDisruptionsForStation: 'Gemeldete Störungen an dieser Station',
+    reportedDisruptionsForLine: 'Gemeldete Störungen auf dieser Linie',
+    noDisruptionsForStation: 'Keine Störungen an dieser Station gemeldet',
+    noDisruptionsForLine: 'Keine Störungen auf dieser Linie gemeldet',
   },
   en: {
     appName: 'MetroFlow',
@@ -662,6 +692,13 @@ export const translations: Record<Language, Translations> = {
     tabBarStyleDesc: 'Choose between the floating iOS 26 glass dock and the classic bar.',
     tabBarStyleIOS26: 'iOS 26 Glass Dock',
     tabBarStyleClassic: 'Classic Bar',
+    uiDesignSetting: 'Interface Design System',
+    uiDesignDesc: 'Switch between classic MetroFlow layout and the completely overhauled Apple iOS-inspired design (iOS Neo).',
+    uiDesignClassic: 'MetroFlow Classic',
+    uiDesignIOS: 'iOS Overhaul',
+    uiDesignIOSBadge: 'iOS Design',
+    uiDesignMinecraft: 'Minecraft Edition',
+    uiDesignMinecraftBadge: 'Minecraft Bedrock',
     startupDisruptionOverview: 'Disruption overview on app launch',
     startupDisruptionOverviewDesc: 'Automatically shows a brief overview of all currently reported disruptions when launching the app.',
     refreshDataButton: 'Update data now',
@@ -670,5 +707,33 @@ export const translations: Record<Language, Translations> = {
     refreshingData: 'Updating...',
     syncServerSetting: 'Online Synchronization',
     syncServerDesc: 'Synchronizes disruptions and articles in real-time across all users and devices.',
+    routeImpassableWarning: 'Route Impassable',
+    routeImpassableDesc: 'This planned route is impossible to use due to track closure or maintenance!',
+    calculateAlternateRoute: 'Calculate Alternate Route',
+    viewDisruptionDetails: 'Disruption details',
+    reportedDisruptionsForStation: 'Reported disruptions at this station',
+    reportedDisruptionsForLine: 'Reported disruptions on this line',
+    noDisruptionsForStation: 'No disruptions reported at this station',
+    noDisruptionsForLine: 'No disruptions reported on this line',
   },
 };
+
+export function getDisruptionTypeLabel(type: string, language: Language): string {
+  const t = translations[language];
+  switch (type) {
+    case 'closure':
+      return t.closure;
+    case 'construction':
+      return t.construction;
+    case 'missing_tracks':
+      return t.missingTracks;
+    case 'inactive_redstone':
+      return t.inactiveRedstone;
+    case 'empty_minecart':
+      return t.emptyMinecart;
+    case 'delay':
+      return language === 'de' ? 'Verspätung' : 'Delay';
+    default:
+      return type;
+  }
+}

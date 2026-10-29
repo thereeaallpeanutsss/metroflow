@@ -57,3 +57,468 @@
   will-change: stroke-dashoffset;
   transform: translateZ(0);
 }
+
+/* ==========================================================================
+   MINECRAFT UI THEME (MODERN BEDROCK & DUNGEONS EDITION PIXEL SYSTEM)
+   Optimized for both Light Mode (Birch/Sandstone/Quartz) and Dark Mode (Deepslate/Obsidian/Netherite)
+   ========================================================================== */
+.theme-minecraft {
+  font-family: 'VT323', monospace, sans-serif !important;
+  font-size: 1.15rem;
+  letter-spacing: 0.02em;
+  image-rendering: pixelated;
+  --tw-shadow: none !important;
+  box-shadow: none !important;
+}
+
+/* Headings, buttons, badges, tabs use Press Start 2P */
+.theme-minecraft h1,
+.theme-minecraft h2,
+.theme-minecraft h3,
+.theme-minecraft h4,
+.theme-minecraft th,
+.theme-minecraft [role="tab"],
+.theme-minecraft .font-black,
+.theme-minecraft .font-bold {
+  font-family: 'Press Start 2P', monospace, sans-serif !important;
+  letter-spacing: -0.04em;
+}
+
+.theme-minecraft h1 {
+  font-size: 1.1rem !important;
+  line-height: 1.3 !important;
+}
+.theme-minecraft h2 {
+  font-size: 1.0rem !important;
+  line-height: 1.3 !important;
+}
+.theme-minecraft h3 {
+  font-size: 0.88rem !important;
+  line-height: 1.3 !important;
+}
+
+/* All Rounded corners become crisp pixelated blocks (2px-3px) */
+.theme-minecraft .rounded-3xl,
+.theme-minecraft .rounded-2xl,
+.theme-minecraft .rounded-xl,
+.theme-minecraft .rounded-full,
+.theme-minecraft .rounded-lg {
+  border-radius: 3px !important;
+}
+
+/* --------------------------------------------------------------------------
+   DARK MODE: Modern Deepslate & Obsidian (Netherite Bevels)
+   -------------------------------------------------------------------------- */
+.theme-minecraft.dark,
+.theme-minecraft:where(.dark, .dark *),
+.theme-minecraft-dark {
+  background-color: #14161a !important;
+  background-image:
+    radial-gradient(circle at 2px 2px, rgba(255,255,255,0.05) 1px, transparent 1px),
+    linear-gradient(45deg, #101215 25%, transparent 25%),
+    linear-gradient(-45deg, #101215 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #101215 75%),
+    linear-gradient(-45deg, transparent 75%, #101215 75%) !important;
+  background-size: 16px 16px !important;
+  color: #f1f5f9 !important;
+}
+
+.theme-minecraft.dark h1,
+.theme-minecraft.dark h2,
+.theme-minecraft.dark h3,
+.theme-minecraft.dark h4,
+.theme-minecraft:where(.dark, .dark *) h1,
+.theme-minecraft:where(.dark, .dark *) h2,
+.theme-minecraft:where(.dark, .dark *) h3,
+.theme-minecraft:where(.dark, .dark *) h4 {
+  text-shadow: 2px 2px 0px #0c0e12;
+}
+
+/* Dark Mode Panels & Cards */
+.theme-minecraft.dark .bg-white,
+.theme-minecraft.dark .bg-slate-50,
+.theme-minecraft.dark .bg-slate-900,
+.theme-minecraft.dark .bg-slate-950,
+.theme-minecraft.dark .bg-white\/95,
+.theme-minecraft.dark .bg-slate-900\/95,
+.theme-minecraft.dark .bg-white\/85,
+.theme-minecraft.dark .bg-slate-950\/85,
+.theme-minecraft:where(.dark, .dark *) .bg-white,
+.theme-minecraft:where(.dark, .dark *) .bg-slate-50,
+.theme-minecraft:where(.dark, .dark *) .bg-slate-900,
+.theme-minecraft:where(.dark, .dark *) .bg-slate-950,
+.theme-minecraft:where(.dark, .dark *) .bg-white\/95,
+.theme-minecraft:where(.dark, .dark *) .bg-slate-900\/95,
+.theme-minecraft:where(.dark, .dark *) .bg-white\/85,
+.theme-minecraft:where(.dark, .dark *) .bg-slate-950\/85 {
+  background-color: #1f232a !important;
+  border: 2px solid #0c0e12 !important;
+  box-shadow: inset 2px 2px 0px #343a46, inset -2px -2px 0px #121418, 0 4px 0px rgba(0,0,0,0.45) !important;
+  border-radius: 3px !important;
+  color: #f1f5f9 !important;
+}
+
+/* Dark Mode Header */
+.theme-minecraft.dark header,
+.theme-minecraft:where(.dark, .dark *) header {
+  background: #181b22 !important;
+  border-bottom: 3px solid #0c0e12 !important;
+  box-shadow: inset 0 2px 0 #2a303a, 0 4px 0 rgba(0,0,0,0.5) !important;
+}
+
+/* Dark Mode Buttons */
+.theme-minecraft.dark button,
+.theme-minecraft:where(.dark, .dark *) button {
+  font-family: 'Press Start 2P', monospace !important;
+  font-size: 0.62rem !important;
+  line-height: 1.2 !important;
+  border-radius: 2px !important;
+  border-top: 2px solid #5a6372 !important;
+  border-left: 2px solid #5a6372 !important;
+  border-right: 2px solid #121418 !important;
+  border-bottom: 2px solid #121418 !important;
+  background: #323842 !important;
+  color: #ffffff !important;
+  text-shadow: 2px 2px 0px #111317 !important;
+  box-shadow: inset -1px -1px 0px #22262d, inset 1px 1px 0px #4a5360, 0 2px 0 #0c0e12 !important;
+  transition: none !important;
+}
+
+.theme-minecraft.dark button:hover:not(:disabled),
+.theme-minecraft:where(.dark, .dark *) button:hover:not(:disabled) {
+  background: #424a56 !important;
+  color: #ffff77 !important;
+  border-top-color: #727e90 !important;
+  border-left-color: #727e90 !important;
+  border-right-color: #121418 !important;
+  border-bottom-color: #121418 !important;
+}
+
+.theme-minecraft.dark button:active:not(:disabled),
+.theme-minecraft:where(.dark, .dark *) button:active:not(:disabled) {
+  background: #242830 !important;
+  border-top-color: #121418 !important;
+  border-left-color: #121418 !important;
+  border-right-color: #5a6372 !important;
+  border-bottom-color: #5a6372 !important;
+  box-shadow: inset 2px 2px 0px #111317 !important;
+}
+
+/* Dark Mode Inputs */
+.theme-minecraft.dark input,
+.theme-minecraft.dark select,
+.theme-minecraft.dark textarea,
+.theme-minecraft:where(.dark, .dark *) input,
+.theme-minecraft:where(.dark, .dark *) select,
+.theme-minecraft:where(.dark, .dark *) textarea {
+  border-radius: 2px !important;
+  background-color: #0f1115 !important;
+  border-top: 2px solid #000000 !important;
+  border-left: 2px solid #000000 !important;
+  border-bottom: 2px solid #343a46 !important;
+  border-right: 2px solid #343a46 !important;
+  color: #4ade80 !important;
+  font-family: 'VT323', monospace !important;
+  font-size: 1.25rem !important;
+}
+
+/* Dark Mode Hotbar Track */
+.theme-minecraft.dark nav > div,
+.theme-minecraft:where(.dark, .dark *) nav > div {
+  background: #20242b !important;
+  border: 2px solid #0c0e12 !important;
+  border-top: 2px solid #4a5360 !important;
+  box-shadow: inset 2px 2px 0 #3a424e, inset -2px -2px 0 #14171c, 0 6px 16px rgba(0,0,0,0.6) !important;
+  border-radius: 4px !important;
+}
+
+.theme-minecraft.dark nav button:not([data-active="true"]),
+.theme-minecraft:where(.dark, .dark *) nav button:not([data-active="true"]) {
+  background: #2d333b !important;
+  color: #cbd5e1 !important;
+  border-radius: 2px !important;
+}
+
+/* --------------------------------------------------------------------------
+   LIGHT MODE: Modern Sandstone, Birch & Smooth Quartz
+   -------------------------------------------------------------------------- */
+.theme-minecraft:not(.dark),
+.theme-minecraft-light {
+  background-color: #f2ede4 !important;
+  background-image:
+    radial-gradient(circle at 2px 2px, rgba(0,0,0,0.04) 1px, transparent 1px),
+    linear-gradient(45deg, #e8e2d6 25%, transparent 25%),
+    linear-gradient(-45deg, #e8e2d6 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #e8e2d6 75%),
+    linear-gradient(-45deg, transparent 75%, #e8e2d6 75%) !important;
+  background-size: 16px 16px !important;
+  color: #24211d !important;
+}
+
+.theme-minecraft:not(.dark) h1,
+.theme-minecraft:not(.dark) h2,
+.theme-minecraft:not(.dark) h3,
+.theme-minecraft:not(.dark) h4,
+.theme-minecraft-light h1,
+.theme-minecraft-light h2,
+.theme-minecraft-light h3,
+.theme-minecraft-light h4 {
+  color: #1e1b18 !important;
+  text-shadow: 1px 1px 0px #ffffff;
+}
+
+/* Light Mode Panels & Cards */
+.theme-minecraft:not(.dark) .bg-white,
+.theme-minecraft:not(.dark) .bg-slate-50,
+.theme-minecraft:not(.dark) .bg-slate-900,
+.theme-minecraft:not(.dark) .bg-slate-950,
+.theme-minecraft:not(.dark) .bg-white\/95,
+.theme-minecraft:not(.dark) .bg-slate-900\/95,
+.theme-minecraft:not(.dark) .bg-white\/85,
+.theme-minecraft:not(.dark) .bg-slate-950\/85,
+.theme-minecraft-light .bg-white,
+.theme-minecraft-light .bg-slate-50,
+.theme-minecraft-light .bg-slate-900,
+.theme-minecraft-light .bg-slate-950,
+.theme-minecraft-light .bg-white\/95,
+.theme-minecraft-light .bg-slate-900\/95,
+.theme-minecraft-light .bg-white\/85,
+.theme-minecraft-light .bg-slate-950\/85 {
+  background-color: #fbf9f5 !important;
+  border: 2px solid #3c362f !important;
+  box-shadow: inset 2px 2px 0px #ffffff, inset -2px -2px 0px #e0dad0, 0 4px 0px rgba(60,50,40,0.14) !important;
+  border-radius: 3px !important;
+  color: #24211d !important;
+}
+
+/* Light Mode Header */
+.theme-minecraft:not(.dark) header,
+.theme-minecraft-light header {
+  background: #eae4d8 !important;
+  border-bottom: 3px solid #3c362f !important;
+  box-shadow: inset 0 2px 0 #f7f4ed, 0 4px 0 rgba(60,50,40,0.12) !important;
+  color: #1e1b18 !important;
+}
+
+/* Light Mode Buttons */
+.theme-minecraft:not(.dark) button,
+.theme-minecraft-light button {
+  font-family: 'Press Start 2P', monospace !important;
+  font-size: 0.62rem !important;
+  line-height: 1.2 !important;
+  border-radius: 2px !important;
+  border-top: 2px solid #ffffff !important;
+  border-left: 2px solid #ffffff !important;
+  border-right: 2px solid #756c60 !important;
+  border-bottom: 2px solid #756c60 !important;
+  background: #ded7ca !important;
+  color: #2c2722 !important;
+  text-shadow: 1px 1px 0px #ffffff !important;
+  box-shadow: inset -1px -1px 0px #beb5a5, inset 1px 1px 0px #ede8df, 0 2px 0 #3d3730 !important;
+  transition: none !important;
+}
+
+.theme-minecraft:not(.dark) button:hover:not(:disabled),
+.theme-minecraft-light button:hover:not(:disabled) {
+  background: #ebe5d9 !important;
+  color: #b45309 !important;
+  border-top-color: #ffffff !important;
+  border-left-color: #ffffff !important;
+  border-right-color: #554e44 !important;
+  border-bottom-color: #554e44 !important;
+}
+
+.theme-minecraft:not(.dark) button:active:not(:disabled),
+.theme-minecraft-light button:active:not(:disabled) {
+  background: #cac1b0 !important;
+  border-top-color: #756c60 !important;
+  border-left-color: #756c60 !important;
+  border-right-color: #ffffff !important;
+  border-bottom-color: #ffffff !important;
+  box-shadow: inset 2px 2px 0px #9f9686 !important;
+}
+
+/* Light Mode Inputs */
+.theme-minecraft:not(.dark) input,
+.theme-minecraft:not(.dark) select,
+.theme-minecraft:not(.dark) textarea,
+.theme-minecraft-light input,
+.theme-minecraft-light select,
+.theme-minecraft-light textarea {
+  border-radius: 2px !important;
+  background-color: #ffffff !important;
+  border-top: 2px solid #3c362f !important;
+  border-left: 2px solid #3c362f !important;
+  border-bottom: 2px solid #cdc5b6 !important;
+  border-right: 2px solid #cdc5b6 !important;
+  color: #15803d !important;
+  font-family: 'VT323', monospace !important;
+  font-size: 1.25rem !important;
+}
+
+/* Light Mode Hotbar Track */
+.theme-minecraft:not(.dark) nav > div,
+.theme-minecraft-light nav > div {
+  background: #ded7cb !important;
+  border: 2px solid #3c362f !important;
+  border-top: 2px solid #ffffff !important;
+  box-shadow: inset 2px 2px 0 #ede7dc, inset -2px -2px 0 #b3a99a, 0 6px 16px rgba(0,0,0,0.12) !important;
+  border-radius: 4px !important;
+}
+
+.theme-minecraft:not(.dark) nav button:not([data-active="true"]),
+.theme-minecraft-light nav button:not([data-active="true"]) {
+  background: #cac2b3 !important;
+  color: #3c362f !important;
+  border-radius: 2px !important;
+}
+
+/* --------------------------------------------------------------------------
+   MODERN MINECRAFT NAVIGATION GLASS LENS & ACTIVE NEON PULSE
+   -------------------------------------------------------------------------- */
+/* Dark Mode Glass Lens */
+.theme-minecraft.dark nav .dock-glass-lens,
+.theme-minecraft:where(.dark, .dark *) nav .dock-glass-lens {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.16) 0%, rgba(255, 255, 255, 0.04) 50%, rgba(255, 255, 255, 0.01) 100%) !important;
+  border: 2px solid rgba(255, 255, 255, 0.6) !important;
+  border-top-color: rgba(255, 255, 255, 0.85) !important;
+  box-shadow: inset 1px 1px 0px rgba(255,255,255,0.45), inset -1px -1px 0px rgba(0,0,0,0.25), 0 6px 16px rgba(0,0,0,0.5) !important;
+  backdrop-filter: blur(5px) saturate(130%) !important;
+  -webkit-backdrop-filter: blur(5px) saturate(130%) !important;
+  border-radius: 3px !important;
+}
+
+/* Light Mode Glass Lens */
+.theme-minecraft:not(.dark) nav .dock-glass-lens,
+.theme-minecraft-light nav .dock-glass-lens {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.42) 0%, rgba(255, 255, 255, 0.16) 50%, rgba(255, 255, 255, 0.06) 100%) !important;
+  border: 2px solid rgba(255, 255, 255, 0.95) !important;
+  border-top-color: #ffffff !important;
+  box-shadow: inset 1px 1px 0px rgba(255,255,255,0.7), inset -1px -1px 0px rgba(0,0,0,0.1), 0 4px 12px rgba(60,50,40,0.2) !important;
+  backdrop-filter: blur(5px) saturate(130%) !important;
+  -webkit-backdrop-filter: blur(5px) saturate(130%) !important;
+  border-radius: 3px !important;
+}
+
+/* Neon Yellow Bloom Animations */
+@keyframes mcNeonYellowPulse {
+  0%, 100% {
+    filter: drop-shadow(0 0 3px rgba(255, 255, 85, 0.7))
+            drop-shadow(0 0 8px rgba(255, 230, 0, 0.45))
+            drop-shadow(0 2px 2px rgba(0, 0, 0, 0.9));
+  }
+  50% {
+    filter: drop-shadow(0 0 6px rgba(255, 255, 85, 0.95))
+            drop-shadow(0 0 14px rgba(255, 230, 0, 0.8))
+            drop-shadow(0 0 20px rgba(255, 215, 0, 0.45))
+            drop-shadow(0 2px 2px rgba(0, 0, 0, 0.9));
+  }
+}
+
+@keyframes mcTextNeonPulse {
+  0%, 100% {
+    text-shadow:
+      2px 2px 0px #000000,
+      -1px -1px 0px #000000,
+      1px -1px 0px #000000,
+      -1px 1px 0px #000000,
+      0 0 5px rgba(255, 255, 85, 0.65),
+      0 0 10px rgba(255, 230, 0, 0.4);
+  }
+  50% {
+    text-shadow:
+      2px 2px 0px #000000,
+      -1px -1px 0px #000000,
+      1px -1px 0px #000000,
+      -1px 1px 0px #000000,
+      0 0 8px rgba(255, 255, 85, 0.95),
+      0 0 16px rgba(255, 230, 0, 0.75),
+      0 0 24px rgba(255, 215, 0, 0.45);
+  }
+}
+
+@keyframes mcLightGoldenPulse {
+  0%, 100% {
+    filter: drop-shadow(0 0 3px rgba(234, 179, 8, 0.8))
+            drop-shadow(0 0 8px rgba(202, 138, 4, 0.5))
+            drop-shadow(0 1px 1px rgba(60, 50, 40, 0.6));
+  }
+  50% {
+    filter: drop-shadow(0 0 6px rgba(234, 179, 8, 1))
+            drop-shadow(0 0 12px rgba(245, 158, 11, 0.85))
+            drop-shadow(0 0 16px rgba(251, 191, 36, 0.5))
+            drop-shadow(0 1px 1px rgba(60, 50, 40, 0.6));
+  }
+}
+
+@keyframes mcLightTextPulse {
+  0%, 100% {
+    text-shadow:
+      1px 1px 0px #ffffff,
+      -1px -1px 0px #ffffff,
+      0 0 6px rgba(234, 179, 8, 0.7),
+      0 0 12px rgba(245, 158, 11, 0.4);
+  }
+  50% {
+    text-shadow:
+      1px 1px 0px #ffffff,
+      -1px -1px 0px #ffffff,
+      0 0 8px rgba(234, 179, 8, 0.95),
+      0 0 16px rgba(245, 158, 11, 0.75);
+  }
+}
+
+/* Active Tab in Minecraft UI */
+.theme-minecraft nav button[data-active="true"] {
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+
+.theme-minecraft.dark nav button[data-active="true"],
+.theme-minecraft:where(.dark, .dark *) nav button[data-active="true"] {
+  color: #ffff55 !important;
+}
+
+.theme-minecraft.dark nav button[data-active="true"] svg,
+.theme-minecraft:where(.dark, .dark *) nav button[data-active="true"] svg {
+  color: #ffff55 !important;
+  animation: mcNeonYellowPulse 2.4s ease-in-out infinite !important;
+  will-change: filter;
+}
+
+.theme-minecraft.dark nav button[data-active="true"] span,
+.theme-minecraft:where(.dark, .dark *) nav button[data-active="true"] span {
+  color: #ffff55 !important;
+  font-weight: 900 !important;
+  animation: mcTextNeonPulse 2.4s ease-in-out infinite !important;
+  will-change: text-shadow;
+}
+
+.theme-minecraft:not(.dark) nav button[data-active="true"],
+.theme-minecraft-light nav button[data-active="true"] {
+  color: #b45309 !important;
+}
+
+.theme-minecraft:not(.dark) nav button[data-active="true"] svg,
+.theme-minecraft-light nav button[data-active="true"] svg {
+  color: #d97706 !important;
+  animation: mcLightGoldenPulse 2.4s ease-in-out infinite !important;
+  will-change: filter;
+}
+
+.theme-minecraft:not(.dark) nav button[data-active="true"] span,
+.theme-minecraft-light nav button[data-active="true"] span {
+  color: #92400e !important;
+  font-weight: 900 !important;
+  animation: mcLightTextPulse 2.4s ease-in-out infinite !important;
+  will-change: text-shadow;
+}
+
+/* Line Badges in Minecraft UI */
+.theme-minecraft span[style*="background-color"] {
+  border: 2px solid #000000 !important;
+  border-radius: 2px !important;
+  box-shadow: 1px 1px 0 rgba(255,255,255,0.4) !important;
+}
+

@@ -1,9 +1,12 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
+import { motion } from 'motion/react';
 import { Language, translations } from '../utils/i18n';
 import { SavedJourney } from '../types/metro';
 import { METRO_LINES } from '../data/metroData';
 import { useHaptics, haptic } from '../utils/haptics';
 import { TabBarStyle } from './TabBar';
+import { VersionHistoryView } from './VersionHistoryView';
+import { CURRENT_VERSION } from '../data/versionHistory';
 import {
   Globe,
   Sun,
@@ -25,6 +28,8 @@ import {
   RefreshCw,
   Bell,
   Wifi,
+  ChevronRight,
+  Layers,
 } from 'lucide-react';
 
 interface OptionsMenuProps {
@@ -32,6 +37,8 @@ interface OptionsMenuProps {
   onSetLanguage: (lang: Language) => void;
   theme: 'dark' | 'light';
   onSetTheme: (theme: 'dark' | 'light') => void;
+  uiTheme?: 'default' | 'ios' | 'minecraft';
+  onSetUiTheme?: (mode: 'default' | 'ios' | 'minecraft') => void;
   savedJourneys: SavedJourney[];
   onLoadSavedJourney: (journey: SavedJourney) => void;
   onDeleteSavedJourney: (journeyId: string) => void;
@@ -45,6 +52,8 @@ interface OptionsMenuProps {
   onToggleStartupOverview?: (enabled: boolean) => void;
   onRefreshData?: () => Promise<void>;
   isRefreshingData?: boolean;
+  openVersionHistoryDirectly?: boolean;
+  onCloseVersionHistoryDirectly?: () => void;
 }
 
 export const OptionsMenu: React.FC<OptionsMenuProps> = ({
@@ -52,6 +61,8 @@ export const OptionsMenu: React.FC<OptionsMenuProps> = ({
   onSetLanguage,
   theme,
   onSetTheme,
+  uiTheme = 'ios',
+  onSetUiTheme,
   savedJourneys,
   onLoadSavedJourney,
   onDeleteSavedJourney,
@@ -65,14 +76,38 @@ export const OptionsMenu: React.FC<OptionsMenuProps> = ({
   onToggleStartupOverview,
   onRefreshData,
   isRefreshingData = false,
+  openVersionHistoryDirectly = false,
+  onCloseVersionHistoryDirectly,
 }) => {
   const t = translations[language];
   const { enabled: hapticsEnabled, setEnabled: setHapticsEnabled, isSupported: hapticsSupported } = useHaptics();
 
+  // Version History subpage view state
+  const [showVersionHistory, setShowVersionHistory] = useState(openVersionHistoryDirectly);
+
+  useEffect(() => {
+    if (openVersionHistoryDirectly) {
+      setShowVersionHistory(true);
+    }
+  }, [openVersionHistoryDirectly]);
+
   // Admin passcode verification state
-  const [adminCodeInput, setAdminCodeInput] = React.useState('');
-  const [adminError, setAdminError] = React.useState(false);
-  const [adminSuccess, setAdminSuccess] = React.useState(false);
+  const [adminCodeInput, setAdminCodeInput] = useState('');
+  const [adminError, setAdminError] = useState(false);
+  const [adminSuccess, setAdminSuccess] = useState(false);
+
+  if (showVersionHistory) {
+    return (
+      <VersionHistoryView
+        language={language}
+        onBack={() => {
+          setShowVersionHistory(false);
+          onCloseVersionHistoryDirectly?.();
+        }}
+        uiTheme={uiTheme}
+      />
+    );
+  }
 
   const handleVerifyAdmin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -156,6 +191,89 @@ export const OptionsMenu: React.FC<OptionsMenuProps> = ({
           </button>
         </div>
       </div>
+
+      {/* UI Design System Setting (Admin Only: Classic, iOS Overhaul, Minecraft Edition) */}
+      {isAdmin && (
+        <div className="p-4 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl space-y-3">
+          <div className="space-y-0.5">
+            <div className="flex items-center gap-2 text-sm font-semibold text-slate-800 dark:text-slate-200">
+              <Smartphone className="w-4 h-4 text-blue-500" />
+              <span>{t.uiDesignSetting}</span>
+              <span className="ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full bg-gradient-to-r from-blue-500 to-indigo-600 text-white shadow-xs">
+                {uiTheme === 'minecraft' ? 'Minecraft' : uiTheme === 'ios' ? 'iOS Overhaul' : 'Classic'}
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400">
+              {t.uiDesignDesc}
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
+            {/* Classic MetroFlow UI */}
+            <button
+              onClick={() => {
+                haptic.selection();
+                onSetUiTheme?.('default');
+              }}
+              className={`py-3 px-3.5 rounded-2xl flex items-center justify-between border transition text-xs font-semibold cursor-pointer ${
+                uiTheme === 'default'
+                  ? 'bg-slate-800 dark:bg-slate-700 text-white border-slate-600 shadow-md shadow-slate-900/20 ring-2 ring-slate-400/30'
+                  : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700'
+              }`}
+            >
+              <div className="text-left">
+                <div className="font-bold">{t.uiDesignClassic}</div>
+                <div className="text-[9px] opacity-75">Original Design</div>
+              </div>
+              {uiTheme === 'default' && <Check className="w-4 h-4 shrink-0 ml-1 text-emerald-400" />}
+            </button>
+
+            {/* iOS Overhaul UI */}
+            <button
+              onClick={() => {
+                haptic.selection();
+                onSetUiTheme?.('ios');
+              }}
+              className={`py-3 px-3.5 rounded-2xl flex items-center justify-between border transition text-xs font-semibold cursor-pointer ${
+                uiTheme === 'ios'
+                  ? 'bg-gradient-to-r from-blue-600 via-indigo-600 to-sky-500 text-white border-blue-400 shadow-md shadow-blue-500/25 ring-2 ring-blue-400/30'
+                  : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700'
+              }`}
+            >
+              <div className="text-left">
+                <div className="font-bold flex items-center gap-1.5">
+                  <span>{t.uiDesignIOS}</span>
+                  <Sparkles className="w-3 h-3 text-amber-300" />
+                </div>
+                <div className="text-[9px] opacity-90">Apple iOS Themed</div>
+              </div>
+              {uiTheme === 'ios' && <Check className="w-4 h-4 shrink-0 ml-1 text-white" />}
+            </button>
+
+            {/* Minecraft Edition UI */}
+            <button
+              onClick={() => {
+                haptic.selection();
+                onSetUiTheme?.('minecraft');
+              }}
+              className={`py-3 px-3.5 rounded-2xl flex items-center justify-between border transition text-xs font-semibold cursor-pointer ${
+                uiTheme === 'minecraft'
+                  ? 'bg-gradient-to-r from-emerald-700 via-stone-700 to-amber-700 text-white border-emerald-400 shadow-md ring-2 ring-emerald-400/40'
+                  : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700'
+              }`}
+            >
+              <div className="text-left">
+                <div className="font-bold flex items-center gap-1.5">
+                  <span>{t.uiDesignMinecraft}</span>
+                  <span className="text-xs">⛏️</span>
+                </div>
+                <div className="text-[9px] opacity-90">Java / Bedrock Pixel</div>
+              </div>
+              {uiTheme === 'minecraft' && <Check className="w-4 h-4 shrink-0 ml-1 text-emerald-300" />}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Theme Setting (Light / Dark Mode) */}
       <div className="p-4 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl space-y-3">
@@ -661,6 +779,38 @@ export const OptionsMenu: React.FC<OptionsMenuProps> = ({
           {t.appVersion}
         </p>
       </div>
+
+      {/* Version History Button at the very bottom */}
+      <motion.button
+        whileHover={{ scale: 1.01 }}
+        whileTap={{ scale: 0.98 }}
+        onClick={() => {
+          haptic.selection();
+          setShowVersionHistory(true);
+        }}
+        className="w-full p-4 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-md flex items-center justify-between text-left hover:border-blue-500/50 hover:bg-blue-50/20 dark:hover:bg-slate-800/60 transition group cursor-pointer"
+        title={language === 'de' ? 'Versionsverlauf öffnen' : 'Open version history'}
+      >
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-2xl bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
+            <Layers className="w-5 h-5" />
+          </div>
+          <div>
+            <div className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+              <span>{language === 'de' ? 'Versionsverlauf' : 'Version History'}</span>
+              <span className="font-mono text-blue-600 dark:text-blue-400 font-bold px-1.5 py-0.2 rounded-md bg-blue-500/10 border border-blue-500/20">
+                {CURRENT_VERSION}
+              </span>
+            </div>
+            <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+              {language === 'de'
+                ? 'Alle Neuerungen, Features & Bugfixes chronologisch ansehen'
+                : 'View all past updates, features & bug fixes'}
+            </p>
+          </div>
+        </div>
+        <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-blue-500 transition-colors shrink-0" />
+      </motion.button>
     </div>
   );
 };

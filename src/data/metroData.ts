@@ -10,7 +10,7 @@ export const METRO_LINES: Record<string, LineInfo> = {
     color: '#15803D', // Updated to Dark Forest Green as on new map
     textColor: '#FFFFFF',
     terminals: ['Villen Viertel (Nord)', 'Traphgon Airp.'],
-    description: 'Hauptachse: Villen Viertel Nord ↔ Daniel Tower ↔ Badesee ↔ Carl Station ↔ Strand ↔ Messehallen ↔ Traphgon City ↔ Traphgon Airport.',
+    description: 'Hauptachse: Villen Viertel Nord ↔ Daniel Tower ↔ Badesee ↔ Carl Station ↔ Kellrods Airport ↔ Central Station ↔ Airport Hotel ↔ Strand ↔ Messehallen ↔ Traphgon City ↔ Traphgon Airport.',
     frequencyMinutes: 4,
     networkType: 'metro',
     stations: [
@@ -19,6 +19,9 @@ export const METRO_LINES: Record<string, LineInfo> = {
       'daniel-tower',
       'badesee',
       'carl-station',
+      'kellrods-airp',
+      'central-station',
+      'airport-hotel',
       'strand',
       'messehalle-1-2',
       'messehalle-3-4',
@@ -237,26 +240,6 @@ export const METRO_LINES: Record<string, LineInfo> = {
     stations: [
       'retow-terminus',
       'sonnenaufgangsstrasse-retow',
-      'central-station',
-    ],
-  },
-  'U-Blau': {
-    id: 'U-Blau',
-    name: 'U-Blau (Linie 5)',
-    shortName: 'U-Blau',
-    badge: 'U5',
-    color: '#38BDF8',
-    textColor: '#0F172A',
-    terminals: ['Daniel Tower', 'Central Station'],
-    description: 'West-Verbindung: Daniel Tower ↔ Badesee ↔ Carl Station ↔ Airport Hotel ↔ Kellrods Airport ↔ Central Station.',
-    frequencyMinutes: 6,
-    networkType: 'metro',
-    stations: [
-      'daniel-tower',
-      'badesee',
-      'carl-station',
-      'airport-hotel',
-      'kellrods-airp',
       'central-station',
     ],
   },
@@ -562,7 +545,7 @@ export const STATIONS: Record<string, Station> = {
   'daniel-tower': {
     id: 'daniel-tower',
     name: 'Daniel Tower',
-    lines: ['U-Grün', 'U-Rot', 'U-Orange', 'U-Blau', 'IC-1'],
+    lines: ['U-Grün', 'U-Rot', 'U-Orange', 'IC-1'],
     x: 340,
     y: 335,
     isInterchange: true,
@@ -866,11 +849,11 @@ export const STATIONS: Record<string, Station> = {
     id: 'central-station',
     name: 'Central Station',
     lines: [
+      'U-Grün',
       'U-Schwarz',
       'IC-CampCarl-Central',
       'U-Dunkelblau',
       'U-Violett',
-      'U-Blau',
     ],
     x: 455,
     y: 532,
@@ -899,7 +882,7 @@ export const STATIONS: Record<string, Station> = {
   'badesee': {
     id: 'badesee',
     name: 'Badesee',
-    lines: ['U-Grün', 'U-Blau', 'IC-1'],
+    lines: ['U-Grün', 'IC-1'],
     x: 340,
     y: 518,
     isInterchange: false,
@@ -913,7 +896,7 @@ export const STATIONS: Record<string, Station> = {
   'carl-station': {
     id: 'carl-station',
     name: 'Carl Station',
-    lines: ['U-Grün', 'U-Blau', 'IC-1'],
+    lines: ['U-Grün', 'IC-1'],
     x: 340,
     y: 568,
     isInterchange: true,
@@ -927,7 +910,7 @@ export const STATIONS: Record<string, Station> = {
   'kellrods-airp': {
     id: 'kellrods-airp',
     name: 'Kellrods Airport',
-    lines: ['U-Blau'],
+    lines: ['U-Grün'],
     x: 405,
     y: 532,
     isInterchange: true,
@@ -936,12 +919,12 @@ export const STATIONS: Record<string, Station> = {
     isAccessible: false,
     isTimTrain: false,
     labelPosition: 'top',
-    description: 'Regionalflughafen Kellrods (U6 und IC 10 halten hier nicht).',
+    description: 'Regionalflughafen Kellrods (Halt der Linie U1).',
   },
   'airport-hotel': {
     id: 'airport-hotel',
     name: 'Airport Hotel',
-    lines: ['U-Blau'],
+    lines: ['U-Grün'],
     x: 405,
     y: 604,
     isInterchange: false,
@@ -950,7 +933,7 @@ export const STATIONS: Record<string, Station> = {
     isAccessible: false,
     isTimTrain: false,
     labelPosition: 'left',
-    description: 'Tagungshotel und Übernachtungsmöglichkeiten.',
+    description: 'Tagungshotel und Übernachtungsmöglichkeiten (Halt der Linie U1).',
   },
 
   // ================= SÜDWESTEN (RETOW, RATHAUS, JURASSIC PARK) =================
@@ -1162,7 +1145,10 @@ export const NETWORK_CONNECTIONS: Connection[] = [
   { from: 'villen-viertel-west', to: 'daniel-tower', lineId: 'U-Grün', durationMinutes: 3 },
   { from: 'daniel-tower', to: 'badesee', lineId: 'U-Grün', durationMinutes: 2 },
   { from: 'badesee', to: 'carl-station', lineId: 'U-Grün', durationMinutes: 2 },
-  { from: 'carl-station', to: 'strand', lineId: 'U-Grün', durationMinutes: 3 },
+  { from: 'carl-station', to: 'kellrods-airp', lineId: 'U-Grün', durationMinutes: 2 },
+  { from: 'kellrods-airp', to: 'central-station', lineId: 'U-Grün', durationMinutes: 2 },
+  { from: 'central-station', to: 'airport-hotel', lineId: 'U-Grün', durationMinutes: 2 },
+  { from: 'airport-hotel', to: 'strand', lineId: 'U-Grün', durationMinutes: 2 },
   { from: 'strand', to: 'messehalle-1-2', lineId: 'U-Grün', durationMinutes: 3 },
   { from: 'messehalle-1-2', to: 'messehalle-3-4', lineId: 'U-Grün', durationMinutes: 2 },
   { from: 'messehalle-3-4', to: 'traphgon-city', lineId: 'U-Grün', durationMinutes: 3 },
@@ -1224,12 +1210,6 @@ export const NETWORK_CONNECTIONS: Connection[] = [
   { from: 'retow-terminus', to: 'sonnenaufgangsstrasse-retow', lineId: 'U-Violett', durationMinutes: 2 },
   { from: 'sonnenaufgangsstrasse-retow', to: 'central-station', lineId: 'U-Violett', durationMinutes: 4 },
 
-  // ================= U-BLAU (Linie 5) =================
-  { from: 'daniel-tower', to: 'badesee', lineId: 'U-Blau', durationMinutes: 2 },
-  { from: 'badesee', to: 'carl-station', lineId: 'U-Blau', durationMinutes: 2 },
-  { from: 'carl-station', to: 'airport-hotel', lineId: 'U-Blau', durationMinutes: 2 },
-  { from: 'airport-hotel', to: 'kellrods-airp', lineId: 'U-Blau', durationMinutes: 2 },
-  { from: 'kellrods-airp', to: 'central-station', lineId: 'U-Blau', durationMinutes: 2 },
 
   // ================= INTER CITY ZÜGE (IC-ZÜGE) =================
   // --- IC West (Stonebrook ↔ Gare du Nord) ---

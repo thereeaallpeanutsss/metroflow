@@ -40,47 +40,61 @@ export const TabBar: React.FC<TabBarProps> = ({
     { id: 'options', label: t.options, icon: Settings },
   ];
 
-  // Tab & Dock measurements for smooth dragging and precision centering
-  const dockRef = useRef<HTMLDivElement>(null);
-  const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
-  const [tabLayouts, setTabLayouts] = useState<TabLayout[]>([]);
-
-  // Dragging & Interaction state
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragX, setDragX] = useState<number | null>(null);
-  const [hoveredTabIndex, setHoveredTabIndex] = useState<number>(() =>
-    Math.max(0, tabs.findIndex((tb) => tb.id === activeTab))
-  );
-
-  // Temporary lift state during tap transition (matches the video: "lifts up temporarily into Liquid Glass")
-  const [isLiftedTransit, setIsLiftedTransit] = useState(false);
-  const transitTimeoutRef = useRef<number | null>(null);
-
-  const dragStartRef = useRef<{
-    pointerStartX: number;
-    initialLensLeft: number;
-    hasMoved: boolean;
-  }>({
-    pointerStartX: 0,
-    initialLensLeft: currentLeftOrZero(tabLayouts, activeTab, tabs),
-    hasMoved: false,
-  });
-
   const activeIndex = Math.max(
     0,
     tabs.findIndex((tb) => tb.id === activeTab)
   );
 
-  function currentLeftOrZero(layouts: TabLayout[], currentId: AppTab, allTabs: typeof tabs): number {
-    const idx = allTabs.findIndex((tb) => tb.id === currentId);
-    return layouts[idx]?.left ?? 0;
-  }
+  // Tab & Dock measurements for smooth dragging and precision centering
+  const dockRef = useRef<HTMLDivElement>(null);
+  const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
+
+  // Default initial layouts so lens renders immediately without mounting flash
+  const [tabLayouts, setTabLayouts] = useState<TabLayout[]>(() =>
+    [0, 1, 2, 3, 4].map((i) => ({
+      left: 6 + i * 62,
+      width: 62,
+      centerX: 6 + i * 62 + 31,
+    }))
+  );
+
+  // Dragging & Interaction state
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragX, setDragX] = useState<number | null>(null);
+  const [hoveredTabIndex, setHoveredTabIndex] = useState<number>(activeIndex);
+
+  // Temporary lift state during tap transition (matches the video: "lifts up temporarily into Liquid Glass")
+  const [isLiftedTransit, setIsLiftedTransit] = useState(false);
+  const transitTimeoutRef = useRef<number | null>(null);
+
+  // Ref tracking for active pointer drag session
+  const dragTrackingRef = useRef<{
+    pointerId: number | null;
+    startX: number;
+    startY: number;
+    initialLensLeft: number;
+    lensWidth: number;
+    hasMoved: boolean;
+    clickedTabId: AppTab | null;
+  }>({
+    pointerId: null,
+    startX: 0,
+    startY: 0,
+    initialLensLeft: 0,
+    lensWidth: 62,
+    hasMoved: false,
+    clickedTabId: null,
+  });
+
+  const justDraggedRef = useRef(false);
+  const justDraggedTimeoutRef = useRef<number | null>(null);
 
   // Measure tab button positions inside dock with sub-pixel precision
   const updateLayouts = () => {
     const dockEl = dockRef.current;
     if (!dockEl) return;
     const dockRect = dockEl.getBoundingClientRect();
+    if (dockRect.width === 0) return;
 
     const layouts: TabLayout[] = tabs.map((_, idx) => {
       const btn = tabRefs.current[idx];
@@ -104,7 +118,7 @@ export const TabBar: React.FC<TabBarProps> = ({
 
   useLayoutEffect(() => {
     updateLayouts();
-  }, [language, tabBarStyle, activeTab]);
+  }, [language, tabBarStyle]);
 
   useEffect(() => {
     updateLayouts();
@@ -124,13 +138,17 @@ export const TabBar: React.FC<TabBarProps> = ({
       window.removeEventListener('resize', handleResize);
       if (observer) observer.disconnect();
       if (transitTimeoutRef.current) clearTimeout(transitTimeoutRef.current);
+      if (justDraggedTimeoutRef.current) clearTimeout(justDraggedTimeoutRef.current);
     };
   }, []);
+
+  const hoveredTabIndexRef = useRef<number>(activeIndex);
 
   // Sync hovered tab when not dragging
   useEffect(() => {
     if (!isDragging) {
       setHoveredTabIndex(activeIndex);
+      hoveredTabIndexRef.current = activeIndex;
     }
   }, [activeIndex, isDragging]);
 
@@ -142,95 +160,141 @@ export const TabBar: React.FC<TabBarProps> = ({
     }, 280);
   };
 
-  // Pointer drag handlers on the floating liquid glass lens
-  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    e.preventDefault();
+  const cleanupGlobalPointer = () => {
+    window.removeEventListener('pointermove', handleGlobalPointerMove);
+    window.removeEventListener('pointerup', handleGlobalPointerUp);
+    window.removeEventListener('pointercancel', handleGlobalPointerUp);
 
-    try {
-      e.currentTarget.setPointerCapture(e.pointerId);
-    } catch {}
-
-    const currentLeft = tabLayouts[activeIndex]?.left ?? 0;
-
-    dragStartRef.current = {
-      pointerStartX: e.clientX,
-      initialLensLeft: currentLeft,
-      hasMoved: false,
-    };
-
-    setDragX(currentLeft);
-    setIsDragging(true);
-    setHoveredTabIndex(activeIndex);
-    haptic.selection();
+    dragTrackingRef.current.pointerId = null;
+    dragTrackingRef.current.hasMoved = false;
+    setIsDragging(false);
+    setDragX(null);
   };
 
-  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!isDragging) return;
+  const handleGlobalPointerMove = (e: PointerEvent) => {
+    const tracking = dragTrackingRef.current;
+    if (tracking.pointerId === null || e.pointerId !== tracking.pointerId) return;
 
-    const deltaX = e.clientX - dragStartRef.current.pointerStartX;
-    if (Math.abs(deltaX) > 4) {
-      dragStartRef.current.hasMoved = true;
+    const deltaX = e.clientX - tracking.startX;
+    const deltaY = e.clientY - tracking.startY;
+
+    if (!tracking.hasMoved) {
+      // Threshold: 6 pixels horizontally to distinguish between a tap and a drag
+      if (Math.abs(deltaX) > 6 && Math.abs(deltaX) > Math.abs(deltaY)) {
+        tracking.hasMoved = true;
+        setIsDragging(true);
+        haptic.selection();
+      } else if (Math.abs(deltaY) > 10) {
+        // Vertical gesture, abort drag so user can scroll freely
+        cleanupGlobalPointer();
+        return;
+      }
     }
 
-    const rawLeft = dragStartRef.current.initialLensLeft + deltaX;
+    if (tracking.hasMoved) {
+      if (e.cancelable) e.preventDefault();
 
-    // Constrain within dock boundaries
-    const firstTab = tabLayouts[0];
-    const lastTab = tabLayouts[tabs.length - 1];
-    const activeWidth = tabLayouts[activeIndex]?.width ?? 58;
+      const rawLeft = tracking.initialLensLeft + deltaX;
+      const firstTab = tabLayouts[0];
+      const lastTab = tabLayouts[tabs.length - 1];
+      const minLeft = firstTab ? firstTab.left : 4;
+      const maxLeft = lastTab ? lastTab.left + lastTab.width - tracking.lensWidth : 240;
+      const clampedLeft = Math.max(minLeft, Math.min(rawLeft, maxLeft));
 
-    const minLeft = firstTab ? firstTab.left : 4;
-    const maxLeft = lastTab ? lastTab.left + lastTab.width - activeWidth : 220;
-    const clampedLeft = Math.max(minLeft, Math.min(rawLeft, maxLeft));
+      setDragX(clampedLeft);
 
-    setDragX(clampedLeft);
+      // Find closest tab to lens center
+      const lensCenter = clampedLeft + tracking.lensWidth / 2;
+      let closestIdx = activeIndex;
+      let minDistance = Infinity;
 
-    // Calculate nearest tab to the center of the lens
-    const lensCenter = clampedLeft + activeWidth / 2;
-    let closestIndex = activeIndex;
-    let minDistance = Infinity;
+      tabLayouts.forEach((layout, idx) => {
+        const dist = Math.abs(layout.centerX - lensCenter);
+        if (dist < minDistance) {
+          minDistance = dist;
+          closestIdx = idx;
+        }
+      });
 
-    tabLayouts.forEach((layout, idx) => {
-      const dist = Math.abs(layout.centerX - lensCenter);
-      if (dist < minDistance) {
-        minDistance = dist;
-        closestIndex = idx;
+      if (hoveredTabIndexRef.current !== closestIdx) {
+        hoveredTabIndexRef.current = closestIdx;
+        setHoveredTabIndex(closestIdx);
+        haptic.selection(); // crisp tactile tick as glass lens passes each icon
+
+        // Select menu when being hovered over a menu item
+        const hoveredTab = tabs[closestIdx];
+        if (hoveredTab) {
+          onChangeTab(hoveredTab.id);
+        }
+      }
+    }
+  };
+
+  const handleGlobalPointerUp = (e: PointerEvent) => {
+    const tracking = dragTrackingRef.current;
+    if (tracking.pointerId === null || e.pointerId !== tracking.pointerId) return;
+
+    const wasMoved = tracking.hasMoved;
+    const clickedId = tracking.clickedTabId;
+    const targetIdx = hoveredTabIndexRef.current;
+
+    cleanupGlobalPointer();
+
+    if (wasMoved) {
+      justDraggedRef.current = true;
+      if (justDraggedTimeoutRef.current) clearTimeout(justDraggedTimeoutRef.current);
+      justDraggedTimeoutRef.current = window.setTimeout(() => {
+        justDraggedRef.current = false;
+      }, 150);
+
+      // Ensure the hovered tab stays selected and lens rests above it
+      const targetTab = tabs[targetIdx];
+      if (targetTab) {
+        haptic.medium();
+        onChangeTab(targetTab.id);
+      }
+    } else if (clickedId) {
+      // Direct tap on a tab button
+      handleSelectTab(clickedId);
+    }
+  };
+
+  const handleDockPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0 && e.pointerType === 'mouse') return;
+
+    const dockEl = dockRef.current;
+    if (!dockEl) return;
+    const dockRect = dockEl.getBoundingClientRect();
+    const relX = e.clientX - dockRect.left;
+
+    // Identify which tab was pressed (if any)
+    let clickedId: AppTab | null = null;
+    tabLayouts.forEach((l, idx) => {
+      if (relX >= l.left && relX <= l.left + l.width) {
+        clickedId = tabs[idx]?.id ?? null;
       }
     });
 
-    if (closestIndex !== hoveredTabIndex) {
-      setHoveredTabIndex(closestIndex);
-      haptic.selection(); // Crisp tactile tick as you glide over each icon
-    }
-  };
+    const curLeft = tabLayouts[activeIndex]?.left ?? (activeIndex * 62 + 6);
+    const curWidth = tabLayouts[activeIndex]?.width ?? 62;
 
-  const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!isDragging) return;
+    dragTrackingRef.current = {
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      initialLensLeft: curLeft,
+      lensWidth: curWidth,
+      hasMoved: false,
+      clickedTabId: clickedId,
+    };
 
-    try {
-      e.currentTarget.releasePointerCapture(e.pointerId);
-    } catch {}
-
-    const wasDrag = dragStartRef.current.hasMoved;
-    const targetIdx = hoveredTabIndex;
-
-    // Reset drag tracking state
-    dragStartRef.current.hasMoved = false;
-    setIsDragging(false);
-    setDragX(null);
-
-    if (wasDrag) {
-      if (tabs[targetIdx] && tabs[targetIdx].id !== activeTab) {
-        haptic.medium();
-        onChangeTab(tabs[targetIdx].id);
-      }
-    } else {
-      // Direct tap on glass item
-      haptic.selection();
-    }
+    window.addEventListener('pointermove', handleGlobalPointerMove, { passive: false });
+    window.addEventListener('pointerup', handleGlobalPointerUp);
+    window.addEventListener('pointercancel', handleGlobalPointerUp);
   };
 
   const handleSelectTab = (tabId: AppTab) => {
+    if (justDraggedRef.current) return;
     if (tabId !== activeTab) {
       triggerTransitLift();
       haptic.selection();
@@ -261,8 +325,10 @@ export const TabBar: React.FC<TabBarProps> = ({
             return (
               <motion.button
                 key={tab.id}
+                type="button"
                 onClick={() => handleSelectTab(tab.id)}
                 whileTap={{ scale: 0.9 }}
+                data-active={isActive ? 'true' : 'false'}
                 className={`relative flex flex-col items-center gap-1 py-1 px-3 rounded-2xl transition-colors cursor-pointer ${
                   isActive
                     ? 'text-slate-900 dark:text-white font-semibold'
@@ -296,9 +362,13 @@ export const TabBar: React.FC<TabBarProps> = ({
   // - "Elements can even lift up into Liquid Glass temporarily, such as when you interact with a component."
   // - "This lets the resting state stay visually quiet, while it comes to life on touch."
   // ----------------------------------------------------
-  const activeLayout = tabLayouts[activeIndex];
-  const targetLeft = activeLayout?.left ?? (activeIndex * 60 + 6);
-  const targetWidth = activeLayout?.width ?? 60;
+  const activeLayout = tabLayouts[activeIndex] || {
+    left: activeIndex * 62 + 6,
+    width: 62,
+    centerX: activeIndex * 62 + 37,
+  };
+  const targetLeft = activeLayout.left;
+  const targetWidth = activeLayout.width;
 
   // Is currently lifted in 3D (dragging or transitioning on tap)
   const isLifted = isDragging || isLiftedTransit;
@@ -318,10 +388,11 @@ export const TabBar: React.FC<TabBarProps> = ({
       }}
       className="fixed bottom-3 sm:bottom-4 inset-x-0 mx-auto w-max max-w-[calc(100vw-1.25rem)] sm:max-w-md z-50 pointer-events-auto select-none"
     >
-      {/* Outer Floating Dock Track */}
+      {/* Outer Floating Dock Track with unified gesture tracking */}
       <div
         ref={dockRef}
-        className="relative p-1.5 rounded-full bg-slate-100/75 dark:bg-slate-900/75 backdrop-blur-3xl backdrop-saturate-150 border border-black/5 dark:border-white/10 shadow-[0_12px_36px_rgba(0,0,0,0.1)] dark:shadow-[0_18px_50px_rgba(0,0,0,0.65)] flex items-center justify-center gap-1 overflow-visible"
+        onPointerDown={handleDockPointerDown}
+        className="relative p-1.5 rounded-full bg-slate-100/75 dark:bg-slate-900/75 backdrop-blur-3xl backdrop-saturate-150 border border-black/5 dark:border-white/10 shadow-[0_12px_36px_rgba(0,0,0,0.1)] dark:shadow-[0_18px_50px_rgba(0,0,0,0.65)] flex items-center justify-center gap-1 overflow-visible touch-none cursor-grab active:cursor-grabbing"
       >
         {/* Soft bevel rim */}
         <div className="absolute inset-0 rounded-full pointer-events-none ring-1 ring-inset ring-white/60 dark:ring-white/10" />
@@ -331,62 +402,55 @@ export const TabBar: React.FC<TabBarProps> = ({
         {/* Liquid Glass Item (100% Colorless Optical Glass)     */}
         {/* Lifts up into 3D on interaction, visually quiet at rest*/}
         {/* ---------------------------------------------------- */}
-        {tabLayouts.length > 0 && (
-          <motion.div
-            onPointerDown={handlePointerDown}
-            onPointerMove={handlePointerMove}
-            onPointerUp={handlePointerUp}
-            onPointerCancel={handlePointerUp}
-            animate={{
-              x: isDragging ? (dragX ?? targetLeft) : targetLeft,
-              width: targetWidth,
-              y: isLifted ? -7 : 0,
-              scale: isLifted ? 1.05 : 1,
-            }}
-            transition={
-              isDragging
-                ? { type: 'spring', stiffness: 950, damping: 50, mass: 0.6 }
-                : { type: 'spring', stiffness: 450, damping: 30, mass: 0.75 }
-            }
-            className={`absolute left-0 top-1.5 bottom-1.5 rounded-full z-30 touch-none select-none cursor-grab active:cursor-grabbing transition-shadow duration-200 ${
-              isLifted
-                ? 'shadow-[0_16px_32px_-4px_rgba(0,0,0,0.22),0_6px_12px_-2px_rgba(0,0,0,0.12),inset_0_2px_2px_rgba(255,255,255,0.9),inset_0_-1.5px_2px_rgba(0,0,0,0.12),inset_3px_0_3px_rgba(255,255,255,0.45),inset_-3px_0_3px_rgba(255,255,255,0.45)]'
-                : 'shadow-[0_2px_8px_rgba(0,0,0,0.08),inset_0_1.5px_2px_rgba(255,255,255,0.8),inset_0_-1px_1.5px_rgba(0,0,0,0.08),inset_2px_0_2.5px_rgba(255,255,255,0.35),inset_-2px_0_2.5px_rgba(255,255,255,0.35)]'
-            }`}
-            style={{
-              left: 0,
-              // Crystal-clear colorless optical liquid glass
-              background:
-                'linear-gradient(180deg, rgba(255, 255, 255, 0.28) 0%, rgba(255, 255, 255, 0.08) 50%, rgba(255, 255, 255, 0.02) 100%)',
-              backdropFilter: 'blur(20px) saturate(120%)',
-              WebkitBackdropFilter: 'blur(20px) saturate(120%)',
-            }}
-          >
-            {/* 1. Curved polished glass outer rim - neutral pure white bevel */}
-            <div className="absolute inset-0 rounded-full border border-white/70 dark:border-white/30 pointer-events-none ring-1 ring-inset ring-white/40 dark:ring-white/15" />
+        <motion.div
+          animate={{
+            x: isDragging ? (dragX ?? targetLeft) : targetLeft,
+            width: targetWidth,
+            y: isLifted ? -6 : 0,
+            scale: isLifted ? 1.04 : 1,
+          }}
+          transition={
+            isDragging
+              ? { type: 'spring', stiffness: 900, damping: 55, mass: 0.5 }
+              : { type: 'spring', stiffness: 360, damping: 28, mass: 0.7 }
+          }
+          className={`dock-glass-lens absolute left-0 top-1.5 bottom-1.5 rounded-full z-20 pointer-events-none select-none transition-shadow duration-200 ${
+            isLifted
+              ? 'shadow-[0_12px_24px_-4px_rgba(0,0,0,0.18),0_4px_8px_-2px_rgba(0,0,0,0.1),inset_0_1.5px_2px_rgba(255,255,255,0.6),inset_0_-1px_1.5px_rgba(0,0,0,0.1),inset_2px_0_2px_rgba(255,255,255,0.25),inset_-2px_0_2px_rgba(255,255,255,0.25)]'
+              : 'shadow-[0_2px_8px_rgba(0,0,0,0.06),inset_0_1px_1.5px_rgba(255,255,255,0.5),inset_0_-1px_1px_rgba(0,0,0,0.06),inset_1.5px_0_2px_rgba(255,255,255,0.2),inset_-1.5px_0_2px_rgba(255,255,255,0.2)]'
+          }`}
+          style={{
+            left: 0,
+            background:
+              'linear-gradient(180deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0.04) 50%, rgba(255, 255, 255, 0.01) 100%)',
+            backdropFilter: 'blur(5px) saturate(130%)',
+            WebkitBackdropFilter: 'blur(5px) saturate(130%)',
+          }}
+        >
+          {/* 1. Curved polished glass outer rim */}
+          <div className="absolute inset-0 rounded-full border border-white/50 dark:border-white/25 pointer-events-none ring-1 ring-inset ring-white/30 dark:ring-white/10" />
 
-            {/* 2. Secondary inner refraction boundary (curved meniscus bevel) */}
-            <div className="absolute inset-[1.5px] rounded-full border border-white/30 dark:border-white/15 pointer-events-none" />
+          {/* 2. Secondary inner refraction boundary */}
+          <div className="absolute inset-[1.5px] rounded-full border border-white/20 dark:border-white/10 pointer-events-none" />
 
-            {/* 3. Left curved flank caustic distortion lens (neutral pure white reflection) */}
-            <div className="absolute inset-y-1 left-0.5 w-2.5 rounded-l-full bg-gradient-to-r from-white/40 via-white/15 to-transparent pointer-events-none blur-[0.4px]" />
+          {/* 3. Left curved flank caustic distortion lens */}
+          <div className="absolute inset-y-1 left-0.5 w-2 rounded-l-full bg-gradient-to-r from-white/25 via-white/10 to-transparent pointer-events-none blur-[0.4px] opacity-40" />
 
-            {/* 4. Right curved flank caustic distortion lens (neutral pure white reflection) */}
-            <div className="absolute inset-y-1 right-0.5 w-2.5 rounded-r-full bg-gradient-to-l from-white/40 via-white/15 to-transparent pointer-events-none blur-[0.4px]" />
+          {/* 4. Right curved flank caustic distortion lens */}
+          <div className="absolute inset-y-1 right-0.5 w-2 rounded-r-full bg-gradient-to-l from-white/25 via-white/10 to-transparent pointer-events-none blur-[0.4px] opacity-40" />
 
-            {/* 5. Overhead convex crest light (crisp pure white highlight) */}
-            <div className="absolute inset-x-2.5 top-0 h-[1.5px] bg-gradient-to-r from-transparent via-white to-transparent pointer-events-none opacity-90" />
+          {/* 5. Overhead convex crest light */}
+          <div className="absolute inset-x-2.5 top-0 h-[1.5px] bg-gradient-to-r from-transparent via-white/80 to-transparent pointer-events-none opacity-75" />
 
-            {/* 6. Bottom edge subtle caustic reflection */}
-            <div className="absolute inset-x-3.5 bottom-0 h-[1px] bg-gradient-to-r from-transparent via-white/40 to-transparent pointer-events-none" />
+          {/* 6. Bottom edge subtle caustic reflection */}
+          <div className="absolute inset-x-3.5 bottom-0 h-[1px] bg-gradient-to-r from-transparent via-white/25 to-transparent pointer-events-none" />
 
-            {/* 7. Convex lens surface radial reflection */}
-            <div className="absolute inset-0 rounded-full bg-[radial-gradient(ellipse_at_50%_15%,rgba(255,255,255,0.35)_0%,rgba(255,255,255,0.03)_55%,transparent_75%)] pointer-events-none opacity-90" />
-          </motion.div>
-        )}
+          {/* 7. Convex lens surface radial reflection */}
+          <div className="absolute inset-0 rounded-full bg-[radial-gradient(ellipse_at_50%_15%,rgba(255,255,255,0.22)_0%,rgba(255,255,255,0.02)_55%,transparent_75%)] pointer-events-none opacity-30" />
+        </motion.div>
 
         {/* ---------------------------------------------------- */}
-        {/* Menu Page Buttons & Icons (Underneath the Liquid Lens)*/}
+        {/* Menu Page Buttons & Icons (Sharp & readable above lens)*/}
         {/* ---------------------------------------------------- */}
         {tabs.map((tab, idx) => {
           const Icon = tab.icon;
@@ -399,8 +463,10 @@ export const TabBar: React.FC<TabBarProps> = ({
               ref={(el) => {
                 tabRefs.current[idx] = el;
               }}
+              type="button"
               onClick={() => handleSelectTab(tab.id)}
-              className={`relative px-2.5 sm:px-3.5 py-1.5 rounded-full flex flex-col items-center justify-center min-w-[3.4rem] sm:min-w-[4rem] select-none transition-colors duration-150 z-20 cursor-pointer ${
+              data-active={isActive ? 'true' : 'false'}
+              className={`relative px-2.5 sm:px-3.5 py-1.5 rounded-full flex flex-col items-center justify-center min-w-[3.4rem] sm:min-w-[4rem] select-none transition-colors duration-150 z-30 cursor-pointer ${
                 isActive || isHovered
                   ? 'text-slate-900 dark:text-white font-bold'
                   : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 font-medium'
@@ -411,14 +477,18 @@ export const TabBar: React.FC<TabBarProps> = ({
                 <Icon
                   className={`w-4 h-4 sm:w-[1.15rem] sm:h-[1.15rem] transition-all duration-200 ${
                     isActive || isHovered
-                      ? 'scale-105 text-slate-900 dark:text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.12)]'
+                      ? 'scale-105 text-slate-900 dark:text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.25)]'
                       : ''
                   }`}
                 />
               </div>
 
               {/* Label */}
-              <span className="text-[9.5px] sm:text-[10px] tracking-tight pointer-events-none leading-tight">
+              <span
+                className={`text-[9.5px] sm:text-[10px] tracking-tight pointer-events-none leading-tight ${
+                  isActive || isHovered ? 'drop-shadow-[0_1px_2px_rgba(0,0,0,0.3)]' : ''
+                }`}
+              >
                 {tab.label}
               </span>
             </button>

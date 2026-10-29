@@ -13,8 +13,18 @@ if (rootElement) {
   );
 }
 
-// Safely register service worker for offline PWA functionality
-if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+// Global unhandled rejection safety handler for sandboxed preview
+if (typeof window !== 'undefined') {
+  window.addEventListener('unhandledrejection', (event) => {
+    const msg = (event.reason?.message || event.reason?.stack || String(event.reason || '')) + '';
+    if (msg.includes('WebSocket') || msg.includes('@vite/client')) {
+      event.preventDefault();
+    }
+  });
+}
+
+// Safely register service worker for offline PWA functionality in production
+if (import.meta.env.PROD && typeof window !== 'undefined' && 'serviceWorker' in navigator) {
   try {
     registerSW({
       immediate: true,
