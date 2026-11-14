@@ -272,7 +272,7 @@ export default function App() {
 
   // Station route selection: empty by default when opening app (no stations preselected)
   const [originId, setOriginId] = useState<string | null>(null);
-  const [stopoverId, setStopoverId] = useState<string | null>(null);
+  const [stopoverIds, setStopoverIds] = useState<string[]>([]);
   const [destinationId, setDestinationId] = useState<string | null>(null);
 
   // Manual route calculation: routes calculated only upon pressing button
@@ -612,12 +612,21 @@ export default function App() {
     };
   }, []);
 
+  const hasValidRouteEndpoints = (
+    orig: string | null,
+    dest: string | null,
+    stops: string[]
+  ): boolean => {
+    if (!orig || !dest) return false;
+    return orig !== dest || stops.length > 0;
+  };
+
   // Recalculate routes ONLY when preference, disruption avoidance, or global travel times change AND a route has already been calculated
   useEffect(() => {
-    if (hasCalculatedRoute && originId && destinationId && originId !== destinationId) {
+    if (hasCalculatedRoute && originId && destinationId && hasValidRouteEndpoints(originId, destinationId, stopoverIds)) {
       const calculated = findRoutesWithStopover(
         originId,
-        stopoverId,
+        stopoverIds,
         destinationId,
         preference,
         avoidDisruptions ? disruptions : [],
@@ -643,19 +652,19 @@ export default function App() {
       haptic.warning();
       return;
     }
-    if (originId === destinationId) {
+    if (originId === destinationId && stopoverIds.length === 0) {
       haptic.error();
       showToast(
         language === 'de'
-          ? 'Start und Ziel dürfen nicht identisch sein.'
-          : 'Origin and destination must be different.'
+          ? 'Start und Ziel dürfen ohne Zwischenstopp nicht identisch sein.'
+          : 'Origin and destination must be different unless you add a stopover.'
       );
       return;
     }
 
     const calculated = findRoutesWithStopover(
       originId,
-      stopoverId,
+      stopoverIds,
       destinationId,
       preference,
       avoidDisruptions ? disruptions : [],
@@ -674,16 +683,18 @@ export default function App() {
       // Save to recent routes (persisted across app reopens, last 3 quickly accessible)
       const originSt = STATIONS[originId];
       const destSt = STATIONS[destinationId];
-      const stopoverSt = stopoverId ? STATIONS[stopoverId] : null;
+      const stopoverNames = stopoverIds.map((id) => STATIONS[id]?.name || id);
 
       if (originSt && destSt) {
         const updated = saveRecentRoute({
           originId,
           destinationId,
-          stopoverId: stopoverId || undefined,
+          stopoverId: stopoverIds[0],
+          stopoverIds: stopoverIds.length > 0 ? stopoverIds : undefined,
           originName: originSt.name,
           destinationName: destSt.name,
-          stopoverName: stopoverSt?.name,
+          stopoverName: stopoverNames.length > 0 ? stopoverNames.join(' → ') : undefined,
+          stopoverNames: stopoverNames.length > 0 ? stopoverNames : undefined,
           durationMinutes: topRoute.totalDurationMinutes,
           transfersCount: topRoute.transfersCount,
           linesUsed: topRoute.linesUsed,
@@ -699,10 +710,10 @@ export default function App() {
   const handleSetOrigin = (stId: string | null) => {
     haptic.light();
     setOriginId(stId);
-    if (stId && destinationId && stId !== destinationId) {
+    if (stId && destinationId && hasValidRouteEndpoints(stId, destinationId, stopoverIds)) {
       const calculated = findRoutesWithStopover(
         stId,
-        stopoverId,
+        stopoverIds,
         destinationId,
         preference,
         avoidDisruptions ? disruptions : [],
@@ -721,10 +732,10 @@ export default function App() {
   const handleSetDestination = (stId: string | null) => {
     haptic.light();
     setDestinationId(stId);
-    if (originId && stId && originId !== stId) {
+    if (originId && stId && hasValidRouteEndpoints(originId, stId, stopoverIds)) {
       const calculated = findRoutesWithStopover(
         originId,
-        stopoverId,
+        stopoverIds,
         stId,
         preference,
         avoidDisruptions ? disruptions : [],
@@ -738,15 +749,17 @@ export default function App() {
       if (topRoute) {
         const originSt = STATIONS[originId];
         const destSt = STATIONS[stId];
-        const stopoverSt = stopoverId ? STATIONS[stopoverId] : null;
+        const stopoverNames = stopoverIds.map((id) => STATIONS[id]?.name || id);
         if (originSt && destSt) {
           const updated = saveRecentRoute({
             originId,
             destinationId: stId,
-            stopoverId: stopoverId || undefined,
+            stopoverId: stopoverIds[0],
+            stopoverIds: stopoverIds.length > 0 ? stopoverIds : undefined,
             originName: originSt.name,
             destinationName: destSt.name,
-            stopoverName: stopoverSt?.name,
+            stopoverName: stopoverNames.length > 0 ? stopoverNames.join(' → ') : undefined,
+            stopoverNames: stopoverNames.length > 0 ? stopoverNames : undefined,
             durationMinutes: topRoute.totalDurationMinutes,
             transfersCount: topRoute.transfersCount,
             linesUsed: topRoute.linesUsed,
@@ -760,13 +773,14 @@ export default function App() {
     }
   };
 
-  const handleSetStopover = (stId: string | null) => {
+  const handleSetStopovers = (nextStopovers: string[]) => {
     haptic.light();
-    setStopoverId(stId);
-    if (originId && destinationId && originId !== destinationId) {
+    const cleaned = nextStopovers.filter((id) => Boolean(id && STATIONS[id]));
+    setStopoverIds(cleaned);
+    if (originId && destinationId && hasValidRouteEndpoints(originId, destinationId, cleaned)) {
       const calculated = findRoutesWithStopover(
         originId,
-        stId,
+        cleaned,
         destinationId,
         preference,
         avoidDisruptions ? disruptions : [],
@@ -776,20 +790,41 @@ export default function App() {
       setRoutes(calculated);
       setActiveRoute(calculated[0] || null);
       setHasCalculatedRoute(true);
-    } else {
+    } else if (originId === destinationId && cleaned.length === 0) {
+      setRoutes([]);
+      setActiveRoute(null);
       setHasCalculatedRoute(false);
+    }
+  };
+
+  const handleAddStopoverFromMap = (stId: string) => {
+    const next = stopoverIds.includes(stId)
+      ? stopoverIds.filter((id) => id !== stId)
+      : [...stopoverIds, stId];
+    handleSetStopovers(next);
+    const stName = STATIONS[stId]?.name || stId;
+    if (stopoverIds.includes(stId)) {
+      showToast(language === 'de' ? `Zwischenstopp entfernt: ${stName}` : `Stopover removed: ${stName}`);
+    } else {
+      showToast(
+        language === 'de'
+          ? `Zwischenstopp #${next.length} hinzugefügt: ${stName}`
+          : `Added stopover #${next.length}: ${stName}`
+      );
     }
   };
 
   const handleSwapStations = () => {
     haptic.medium();
     const temp = originId;
+    const reversedStopovers = [...stopoverIds].reverse();
     setOriginId(destinationId);
     setDestinationId(temp);
-    if (destinationId && temp && destinationId !== temp) {
+    setStopoverIds(reversedStopovers);
+    if (destinationId && temp && hasValidRouteEndpoints(destinationId, temp, reversedStopovers)) {
       const calculated = findRoutesWithStopover(
         destinationId,
-        stopoverId,
+        reversedStopovers,
         temp,
         preference,
         avoidDisruptions ? disruptions : [],
@@ -811,11 +846,11 @@ export default function App() {
 
   const handleNavigateToPlanner = () => {
     haptic.medium();
-    if (originId && destinationId && originId !== destinationId) {
+    if (originId && destinationId && hasValidRouteEndpoints(originId, destinationId, stopoverIds)) {
       if (!activeRoute || routes.length === 0) {
         const calculated = findRoutesWithStopover(
           originId,
-          stopoverId,
+          stopoverIds,
           destinationId,
           preference,
           avoidDisruptions ? disruptions : [],
@@ -834,7 +869,7 @@ export default function App() {
     haptic.light();
     setOriginId(null);
     setDestinationId(null);
-    setStopoverId(null);
+    setStopoverIds([]);
     setRoutes([]);
     setActiveRoute(null);
     setHasCalculatedRoute(false);
@@ -842,15 +877,21 @@ export default function App() {
 
   const handleSelectRecentRoute = (recent: RecentRoute) => {
     haptic.light();
+    const restoredStopovers =
+      recent.stopoverIds && recent.stopoverIds.length > 0
+        ? recent.stopoverIds
+        : recent.stopoverId
+        ? [recent.stopoverId]
+        : [];
     setOriginId(recent.originId);
-    setStopoverId(recent.stopoverId || null);
+    setStopoverIds(restoredStopovers);
     setDestinationId(recent.destinationId);
     setActiveTab('plan');
 
     // Calculate directly for restored recent route
     const calculated = findRoutesWithStopover(
       recent.originId,
-      recent.stopoverId || null,
+      restoredStopovers,
       recent.destinationId,
       preference,
       avoidDisruptions ? disruptions : [],
@@ -964,27 +1005,30 @@ export default function App() {
 
     const originStation = STATIONS[originId];
     const destStation = STATIONS[destinationId];
-    const stopoverStation = stopoverId ? STATIONS[stopoverId] : null;
+    const stopoverNames = stopoverIds.map((id) => STATIONS[id]?.name || id);
+    const stopKey = stopoverIds.join('|');
 
     if (!originStation || !destStation) return;
 
-    const exists = savedJourneys.some(
-      (j) =>
+    const exists = savedJourneys.some((j) => {
+      const jStops = j.stopoverIds && j.stopoverIds.length > 0 ? j.stopoverIds : j.stopoverId ? [j.stopoverId] : [];
+      return (
         j.originId === originId &&
         j.destinationId === destinationId &&
-        j.stopoverId === (stopoverId || undefined)
-    );
+        jStops.join('|') === stopKey
+      );
+    });
 
     if (exists) {
       haptic.light();
-      const filtered = savedJourneys.filter(
-        (j) =>
-          !(
-            j.originId === originId &&
-            j.destinationId === destinationId &&
-            j.stopoverId === (stopoverId || undefined)
-          )
-      );
+      const filtered = savedJourneys.filter((j) => {
+        const jStops = j.stopoverIds && j.stopoverIds.length > 0 ? j.stopoverIds : j.stopoverId ? [j.stopoverId] : [];
+        return !(
+          j.originId === originId &&
+          j.destinationId === destinationId &&
+          jStops.join('|') === stopKey
+        );
+      });
       setSavedJourneys(filtered);
       try {
         localStorage.setItem('metroflow_saved_journeys', JSON.stringify(filtered));
@@ -999,10 +1043,12 @@ export default function App() {
       timestamp: Date.now(),
       originId,
       destinationId,
-      stopoverId: stopoverId || undefined,
+      stopoverId: stopoverIds[0],
+      stopoverIds: stopoverIds.length > 0 ? stopoverIds : undefined,
       originName: originStation.name,
       destinationName: destStation.name,
-      stopoverName: stopoverStation?.name,
+      stopoverName: stopoverNames.length > 0 ? stopoverNames.join(' → ') : undefined,
+      stopoverNames: stopoverNames.length > 0 ? stopoverNames : undefined,
       durationMinutes: activeRoute.totalDurationMinutes,
       transfersCount: activeRoute.transfersCount,
       linesUsed: activeRoute.linesUsed,
@@ -1027,17 +1073,23 @@ export default function App() {
 
   const handleLoadSavedJourney = (journey: SavedJourney) => {
     haptic.medium();
+    const restoredStopovers =
+      journey.stopoverIds && journey.stopoverIds.length > 0
+        ? journey.stopoverIds
+        : journey.stopoverId
+        ? [journey.stopoverId]
+        : [];
     setOriginId(journey.originId);
-    setStopoverId(journey.stopoverId || null);
+    setStopoverIds(restoredStopovers);
     setDestinationId(journey.destinationId);
     setActiveTab('plan');
 
     const calculated = findRoutesWithStopover(
       journey.originId,
-      journey.stopoverId || null,
+      restoredStopovers,
       journey.destinationId,
       preference,
-      [],
+      avoidDisruptions ? disruptions : [],
       disruptions,
       travelTimeOverrides
     );
@@ -1234,7 +1286,7 @@ export default function App() {
                   language={language}
                   originId={originId}
                   destinationId={destinationId}
-                  stopoverId={stopoverId}
+                  stopoverIds={stopoverIds}
                   routes={routes}
                   activeRoute={activeRoute}
                   savedJourneys={savedJourneys}
@@ -1250,7 +1302,7 @@ export default function App() {
                   hasCalculatedRoute={hasCalculatedRoute}
                   onSetOrigin={handleSetOrigin}
                   onSetDestination={handleSetDestination}
-                  onSetStopover={handleSetStopover}
+                  onSetStopovers={handleSetStopovers}
                   onSwapStations={handleSwapStations}
                   onViewOnMap={handleViewOnMap}
                   onSaveJourney={handleSaveJourney}
@@ -1268,7 +1320,7 @@ export default function App() {
                   language={language}
                   originId={originId}
                   destinationId={destinationId}
-                  stopoverId={stopoverId}
+                  stopoverIds={stopoverIds}
                   routes={routes}
                   activeRoute={activeRoute}
                   savedJourneys={savedJourneys}
@@ -1284,7 +1336,7 @@ export default function App() {
                   hasCalculatedRoute={hasCalculatedRoute}
                   onSetOrigin={handleSetOrigin}
                   onSetDestination={handleSetDestination}
-                  onSetStopover={handleSetStopover}
+                  onSetStopovers={handleSetStopovers}
                   onSwapStations={handleSwapStations}
                   onViewOnMap={handleViewOnMap}
                   onSaveJourney={handleSaveJourney}
@@ -1315,7 +1367,7 @@ export default function App() {
                 theme={theme}
                 selectedOriginId={originId}
                 selectedDestinationId={destinationId}
-                selectedStopoverId={stopoverId}
+                selectedStopoverIds={stopoverIds}
                 activeRoute={activeRoute}
                 activeLineFilter={activeLineFilter}
                 onSelectLineFilter={setActiveLineFilter}
@@ -1333,9 +1385,10 @@ export default function App() {
                   handleSetDestination(stId);
                 }}
                 onSetStopover={(stId) => {
-                  handleSetStopover(stId);
+                  handleAddStopoverFromMap(stId);
                 }}
                 disruptions={disruptions}
+                avoidDisruptions={avoidDisruptions}
                 userConfirmedIds={userConfirmedIds}
                 userResolvedIds={userResolvedIds}
                 onConfirmDisruption={handleConfirmDisruption}

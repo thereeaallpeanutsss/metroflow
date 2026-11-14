@@ -279,6 +279,22 @@ export interface Translations {
   confirmEndRideMessage: string;
   confirmEndRideLoggingWarning: string;
   confirmEndRideBtn: string;
+  dragToReorderStops: string;
+  waypointLabel: string;
+  moveUp: string;
+  moveDown: string;
+  addAnotherStopover: string;
+  exploreNearbyTitle: string;
+  exploreNearbyToggle: string;
+  exploreNearbyOn: string;
+  exploreNearbyOff: string;
+  reachableStationsCount: string;
+  maxJourneyTimeLabel: string;
+  reachableInLabel: string;
+  unreachableInBudget: string;
+  switchIsochroneOrigin: string;
+  closeIsochrone: string;
+  presetMax: string;
 }
 
 export const translations: Record<Language, Translations> = {
@@ -561,6 +577,22 @@ export const translations: Record<Language, Translations> = {
     confirmEndRideMessage: 'Möchtest du die aktive Fahrtbegleitung wirklich beenden? Danach ist sie für diese Fahrt nicht mehr verfügbar.',
     confirmEndRideLoggingWarning: 'Hinweis: Deine noch nicht gespeicherten Fahrzeitmessungen aus dieser Fahrt gehen dabei verloren.',
     confirmEndRideBtn: 'Ja, Fahrt beenden',
+    dragToReorderStops: 'Ziehen zum Sortieren • Tippen zum Ändern',
+    waypointLabel: 'Zwischenstopp',
+    moveUp: 'Nach oben',
+    moveDown: 'Nach unten',
+    addAnotherStopover: 'Weiteren Zwischenstopp hinzufügen',
+    exploreNearbyTitle: 'Erreichbarkeit (Isochrone)',
+    exploreNearbyToggle: 'Erreichbar innerhalb von',
+    exploreNearbyOn: 'Erreichbarkeits-Radius aktiv',
+    exploreNearbyOff: 'Erreichbarkeits-Radius anzeigen',
+    reachableStationsCount: 'Stationen erreichbar',
+    maxJourneyTimeLabel: 'Max. Fahrzeit ab hier',
+    reachableInLabel: 'Erreichbar in',
+    unreachableInBudget: 'Außerhalb des Zeitlimits',
+    switchIsochroneOrigin: 'Erreichbarkeit ab hier anzeigen',
+    closeIsochrone: 'Isochrone beenden',
+    presetMax: 'Max',
   },
   en: {
     appName: 'MetroFlow',
@@ -841,6 +873,22 @@ export const translations: Record<Language, Translations> = {
     confirmEndRideMessage: 'Do you really want to end this ride? It will no longer be accessible once ended.',
     confirmEndRideLoggingWarning: 'Note: Any unsaved travel time measurements from this session will be discarded.',
     confirmEndRideBtn: 'Yes, End Ride',
+    dragToReorderStops: 'Drag to reorder • Tap to edit',
+    waypointLabel: 'Stopover',
+    moveUp: 'Move up',
+    moveDown: 'Move down',
+    addAnotherStopover: 'Add another stopover',
+    exploreNearbyTitle: 'Explore Nearby (Isochrone)',
+    exploreNearbyToggle: 'Reachable within',
+    exploreNearbyOn: 'Reachability radius active',
+    exploreNearbyOff: 'Show reachable area',
+    reachableStationsCount: 'stations reachable',
+    maxJourneyTimeLabel: 'Max travel time from here',
+    reachableInLabel: 'Reachable in',
+    unreachableInBudget: 'Outside time budget',
+    switchIsochroneOrigin: 'Explore reachable from here',
+    closeIsochrone: 'Exit Isochrone',
+    presetMax: 'Max',
   },
 };
 

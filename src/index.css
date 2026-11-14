@@ -205,10 +205,10 @@
 }
 
 /* Dark Mode Inputs */
-.theme-minecraft.dark input,
+.theme-minecraft.dark input:not([type="range"]),
 .theme-minecraft.dark select,
 .theme-minecraft.dark textarea,
-.theme-minecraft:where(.dark, .dark *) input,
+.theme-minecraft:where(.dark, .dark *) input:not([type="range"]),
 .theme-minecraft:where(.dark, .dark *) select,
 .theme-minecraft:where(.dark, .dark *) textarea {
   border-radius: 2px !important;
@@ -339,10 +339,10 @@
 }
 
 /* Light Mode Inputs */
-.theme-minecraft:not(.dark) input,
+.theme-minecraft:not(.dark) input:not([type="range"]),
 .theme-minecraft:not(.dark) select,
 .theme-minecraft:not(.dark) textarea,
-.theme-minecraft-light input,
+.theme-minecraft-light input:not([type="range"]),
 .theme-minecraft-light select,
 .theme-minecraft-light textarea {
   border-radius: 2px !important;

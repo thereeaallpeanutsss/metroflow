@@ -37,14 +37,20 @@ import {
   CheckCircle2,
   Play,
   Timer,
+  Flag,
 } from 'lucide-react';
 import { isCompleteSingleLineRoute } from '../../utils/routeFinder';
+import { StopoverList } from '../StopoverList';
+
+type PickerTarget =
+  | { type: 'origin' | 'destination' | 'add-stopover' }
+  | { type: 'edit-stopover'; index: number };
 
 interface IOSTripPlannerProps {
   language: Language;
   originId: string | null;
   destinationId: string | null;
-  stopoverId: string | null;
+  stopoverIds: string[];
   routes: RouteOption[];
   activeRoute: RouteOption | null;
   savedJourneys: SavedJourney[];
@@ -60,7 +66,7 @@ interface IOSTripPlannerProps {
   hasCalculatedRoute?: boolean;
   onSetOrigin: (stationId: string | null) => void;
   onSetDestination: (stationId: string | null) => void;
-  onSetStopover: (stationId: string | null) => void;
+  onSetStopovers: (stationIds: string[]) => void;
   onSwapStations: () => void;
   onViewOnMap: () => void;
   onSaveJourney: () => void;
@@ -78,7 +84,7 @@ export const IOSTripPlanner: React.FC<IOSTripPlannerProps> = ({
   language,
   originId,
   destinationId,
-  stopoverId,
+  stopoverIds,
   routes,
   activeRoute,
   savedJourneys,
@@ -93,7 +99,7 @@ export const IOSTripPlanner: React.FC<IOSTripPlannerProps> = ({
   hasCalculatedRoute = false,
   onSetOrigin,
   onSetDestination,
-  onSetStopover,
+  onSetStopovers,
   onSwapStations,
   onViewOnMap,
   onSaveJourney,
@@ -106,8 +112,8 @@ export const IOSTripPlanner: React.FC<IOSTripPlannerProps> = ({
 }) => {
   const t = translations[language];
 
-  // Active picker modal state: 'origin' | 'destination' | 'stopover' | null
-  const [pickerTarget, setPickerTarget] = useState<'origin' | 'destination' | 'stopover' | null>(null);
+  // Active picker modal state
+  const [pickerTarget, setPickerTarget] = useState<PickerTarget | null>(null);
   const [pickerSearch, setPickerSearch] = useState('');
 
   // Leg expansion state: default empty Record means all legs show intermediate stations by default
@@ -128,7 +134,6 @@ export const IOSTripPlanner: React.FC<IOSTripPlannerProps> = ({
 
   const originStation = originId ? STATIONS[originId] : null;
   const destinationStation = destinationId ? STATIONS[destinationId] : null;
-  const stopoverStation = stopoverId ? STATIONS[stopoverId] : null;
 
   // Helper to determine the directional terminus (last stop of the line in user's direction of travel)
   const getLegDirectionTerminus = (lineId: string, fromStationId: string, toStationId: string): string => {
@@ -158,21 +163,41 @@ export const IOSTripPlanner: React.FC<IOSTripPlannerProps> = ({
     : allStations;
 
   const handleSelectStationInPicker = (stId: string) => {
+    if (!pickerTarget) return;
     haptic.selection();
-    if (pickerTarget === 'origin') onSetOrigin(stId);
-    if (pickerTarget === 'destination') onSetDestination(stId);
-    if (pickerTarget === 'stopover') onSetStopover(stId);
+    if (pickerTarget.type === 'origin') {
+      onSetOrigin(stId);
+    } else if (pickerTarget.type === 'destination') {
+      onSetDestination(stId);
+    } else if (pickerTarget.type === 'add-stopover') {
+      onSetStopovers([...stopoverIds, stId]);
+    } else if (pickerTarget.type === 'edit-stopover') {
+      const updated = [...stopoverIds];
+      updated[pickerTarget.index] = stId;
+      onSetStopovers(updated);
+    }
     setPickerTarget(null);
     setPickerSearch('');
   };
 
+  const canCalculateRoute = Boolean(
+    originId && destinationId && (originId !== destinationId || stopoverIds.length > 0)
+  );
+
   const isCurrentJourneySaved = activeRoute
-    ? savedJourneys.some(
-        (j) =>
+    ? savedJourneys.some((j) => {
+        const jStops =
+          j.stopoverIds && j.stopoverIds.length > 0
+            ? j.stopoverIds
+            : j.stopoverId
+            ? [j.stopoverId]
+            : [];
+        return (
           j.originId === originId &&
           j.destinationId === destinationId &&
-          (j.stopoverId || null) === (stopoverId || null)
-      )
+          jStops.join('|') === stopoverIds.join('|')
+        );
+      })
     : false;
 
   return (
@@ -210,7 +235,7 @@ export const IOSTripPlanner: React.FC<IOSTripPlannerProps> = ({
                   type="button"
                   onClick={() => {
                     haptic.light();
-                    setPickerTarget('origin');
+                    setPickerTarget({ type: 'origin' });
                     setPickerSearch('');
                   }}
                   className="w-full py-2.5 px-3.5 rounded-2xl bg-slate-100/90 dark:bg-zinc-800/80 border border-slate-200/60 dark:border-zinc-700/60 flex items-center justify-between text-left transition hover:bg-slate-200/70 dark:hover:bg-zinc-700/60 cursor-pointer"
@@ -244,40 +269,20 @@ export const IOSTripPlanner: React.FC<IOSTripPlannerProps> = ({
                 </button>
               </div>
 
-              {/* Stopover (Optional) */}
-              {stopoverId && (
-                <div className="relative">
-                  <span className="absolute -left-[18px] top-1/2 -translate-x-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-amber-500 ring-4 ring-amber-500/20 z-10" />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      haptic.light();
-                      setPickerTarget('stopover');
-                      setPickerSearch('');
-                    }}
-                    className="w-full py-2 px-3.5 rounded-2xl bg-slate-100/90 dark:bg-zinc-800/80 border border-slate-200/60 dark:border-zinc-700/60 flex items-center justify-between text-left transition hover:bg-slate-200/70 dark:hover:bg-zinc-700/60 cursor-pointer"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <span className="text-[10px] uppercase font-bold text-amber-500 block leading-none mb-1">
-                        {t.stopover}
-                      </span>
-                      <span className="text-sm font-semibold text-slate-900 dark:text-white truncate block">
-                        {stopoverStation?.name}
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onSetStopover(null);
-                      }}
-                      className="p-1 text-slate-400 hover:text-rose-500"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  </button>
-                </div>
-              )}
+              {/* Drag-Reorderable Multi-Stopover Waypoints */}
+              <StopoverList
+                language={language}
+                stopoverIds={stopoverIds}
+                variant="ios"
+                onEditStopover={(index) => {
+                  setPickerTarget({ type: 'edit-stopover', index });
+                  setPickerSearch('');
+                }}
+                onRemoveStopover={(index) => {
+                  onSetStopovers(stopoverIds.filter((_, idx) => idx !== index));
+                }}
+                onReorderStopovers={onSetStopovers}
+              />
 
               {/* 2. Destination Station Field */}
               <div className="relative">
@@ -286,7 +291,7 @@ export const IOSTripPlanner: React.FC<IOSTripPlannerProps> = ({
                   type="button"
                   onClick={() => {
                     haptic.light();
-                    setPickerTarget('destination');
+                    setPickerTarget({ type: 'destination' });
                     setPickerSearch('');
                   }}
                   className="w-full py-2.5 px-3.5 rounded-2xl bg-slate-100/90 dark:bg-zinc-800/80 border border-slate-200/60 dark:border-zinc-700/60 flex items-center justify-between text-left transition hover:bg-slate-200/70 dark:hover:bg-zinc-700/60 cursor-pointer"
@@ -321,8 +326,8 @@ export const IOSTripPlanner: React.FC<IOSTripPlannerProps> = ({
               </div>
             </div>
 
-            {/* Quick Actions under fields: Swap & Add Stopover */}
-            <div className="flex items-center justify-between pt-1 border-t border-slate-100 dark:border-zinc-800 text-xs">
+            {/* Quick Actions under fields: Swap & Add Stopover (supports 2+ waypoints) */}
+            <div className="flex items-center justify-between pt-1 border-t border-slate-100 dark:border-zinc-800 text-xs gap-2 flex-wrap">
               <button
                 type="button"
                 onClick={() => {
@@ -335,20 +340,18 @@ export const IOSTripPlanner: React.FC<IOSTripPlannerProps> = ({
                 <span>{t.swapStations}</span>
               </button>
 
-              {!stopoverId && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    haptic.light();
-                    setPickerTarget('stopover');
-                    setPickerSearch('');
-                  }}
-                  className="py-1 px-2.5 rounded-xl text-slate-600 dark:text-slate-300 font-semibold flex items-center gap-1 hover:bg-slate-100 dark:hover:bg-zinc-800 transition active:scale-95"
-                >
-                  <Plus className="w-3.5 h-3.5 text-blue-500" />
-                  <span>{t.addStopover}</span>
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={() => {
+                  haptic.light();
+                  setPickerTarget({ type: 'add-stopover' });
+                  setPickerSearch('');
+                }}
+                className="py-1 px-2.5 rounded-xl text-slate-600 dark:text-slate-300 font-semibold flex items-center gap-1 hover:bg-slate-100 dark:hover:bg-zinc-800 transition active:scale-95"
+              >
+                <Plus className="w-3.5 h-3.5 text-blue-500" />
+                <span>{stopoverIds.length === 0 ? t.addStopover : t.addAnotherStopover}</span>
+              </button>
             </div>
           </div>
 
@@ -421,7 +424,7 @@ export const IOSTripPlanner: React.FC<IOSTripPlannerProps> = ({
           {/* Big iOS Action Button: Calculate Route */}
           <button
             type="button"
-            disabled={!originId || !destinationId}
+            disabled={!canCalculateRoute}
             onClick={() => {
               haptic.routeCalculated();
               onCalculateRoute();
@@ -439,20 +442,29 @@ export const IOSTripPlanner: React.FC<IOSTripPlannerProps> = ({
                 {language === 'de' ? 'Zuletzt gesucht' : 'Recent Searches'}
               </span>
               <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
-                {recentRoutes.map((recent) => (
-                  <button
-                    key={recent.id}
-                    onClick={() => {
-                      haptic.selection();
-                      onSelectRecentRoute(recent);
-                    }}
-                    className="py-1.5 px-3 rounded-2xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 text-xs font-semibold text-slate-800 dark:text-slate-200 shadow-xs flex items-center gap-1.5 whitespace-nowrap hover:bg-slate-50 dark:hover:bg-zinc-800 transition active:scale-95"
-                  >
-                    <span>{recent.originName}</span>
-                    <ArrowRight className="w-3 h-3 text-slate-400" />
-                    <span>{recent.destinationName}</span>
-                  </button>
-                ))}
+                {recentRoutes.map((recent) => {
+                  const viaText = recent.stopoverNames?.join(' → ') || recent.stopoverName;
+                  return (
+                    <button
+                      key={recent.id}
+                      onClick={() => {
+                        haptic.selection();
+                        onSelectRecentRoute(recent);
+                      }}
+                      className="py-1.5 px-3 rounded-2xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 text-xs font-semibold text-slate-800 dark:text-slate-200 shadow-xs flex items-center gap-1.5 whitespace-nowrap hover:bg-slate-50 dark:hover:bg-zinc-800 transition active:scale-95"
+                    >
+                      <span>{recent.originName}</span>
+                      {viaText && (
+                        <>
+                          <ArrowRight className="w-3 h-3 text-amber-500" />
+                          <span className="text-amber-600 dark:text-amber-400 text-[11px]">{viaText}</span>
+                        </>
+                      )}
+                      <ArrowRight className="w-3 h-3 text-slate-400" />
+                      <span>{recent.destinationName}</span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -789,141 +801,171 @@ export const IOSTripPlanner: React.FC<IOSTripPlannerProps> = ({
                       {/* Step-by-Step Leg Details Accordion */}
                       {isSelected && (
                         <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-zinc-800/80">
-                          {route.legs.map((leg, lIdx) => {
-                            const isExpanded = !collapsedLegIndices[lIdx];
-                            const line = METRO_LINES[leg.lineId];
-                            const directionTerminus = getLegDirectionTerminus(
-                              leg.lineId,
-                              leg.fromStationId,
-                              leg.toStationId
-                            );
-                            const legDisruptions = disruptions.filter((d) => {
-                              if (!d.isActive || d.lineId !== leg.lineId) return false;
-                              const hasFrom = leg.stations.includes(d.fromStationId);
-                              const hasTo = leg.stations.includes(d.toStationId);
-                              if (hasFrom && hasTo) return true;
-                              if (d.affectedStations && d.affectedStations.some((stId) => leg.stations.includes(stId))) {
-                                return true;
+                          {(() => {
+                            const plannedWaypoints =
+                              route.stopoverStationIds && route.stopoverStationIds.length > 0
+                                ? route.stopoverStationIds
+                                : route.stopoverStationId
+                                ? [route.stopoverStationId]
+                                : [];
+                            let matchedStopCursor = 0;
+
+                            return route.legs.map((leg, lIdx) => {
+                              const isExpanded = !collapsedLegIndices[lIdx];
+                              const line = METRO_LINES[leg.lineId];
+                              const directionTerminus = getLegDirectionTerminus(
+                                leg.lineId,
+                                leg.fromStationId,
+                                leg.toStationId
+                              );
+                              const legDisruptions = disruptions.filter((d) => {
+                                if (!d.isActive || d.lineId !== leg.lineId) return false;
+                                const hasFrom = leg.stations.includes(d.fromStationId);
+                                const hasTo = leg.stations.includes(d.toStationId);
+                                if (hasFrom && hasTo) return true;
+                                if (d.affectedStations && d.affectedStations.some((stId) => leg.stations.includes(stId))) {
+                                  return true;
+                                }
+                                return false;
+                              });
+
+                              let reachedStopoverNum: number | null = null;
+                              if (
+                                lIdx < route.legs.length - 1 &&
+                                matchedStopCursor < plannedWaypoints.length &&
+                                leg.toStationId === plannedWaypoints[matchedStopCursor]
+                              ) {
+                                reachedStopoverNum = matchedStopCursor + 1;
+                                matchedStopCursor += 1;
                               }
-                              return false;
-                            });
 
-                            return (
-                              <div
-                                key={lIdx}
-                                className="p-3 rounded-2xl bg-slate-50 dark:bg-zinc-800/50 border border-slate-100 dark:border-zinc-800 space-y-2 text-xs"
-                              >
-                                <div
-                                  className="flex items-center justify-between cursor-pointer"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    haptic.light();
-                                    setCollapsedLegIndices((prev) => ({
-                                      ...prev,
-                                      [lIdx]: !prev[lIdx],
-                                    }));
-                                  }}
-                                >
-                                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                                    <span
-                                      className="px-2 py-0.5 rounded text-[10px] font-bold text-white shrink-0 shadow-2xs"
-                                      style={{ backgroundColor: line?.color }}
-                                    >
-                                      {line?.badge}
-                                    </span>
-                                    <div className="min-w-0 flex-1">
-                                      <div className="font-semibold text-slate-800 dark:text-slate-200 truncate">
-                                        {STATIONS[leg.fromStationId]?.name} ➔{' '}
-                                        {STATIONS[leg.toStationId]?.name}
-                                      </div>
-                                      {directionTerminus && (
-                                        <div className="text-[10px] font-medium text-blue-600 dark:text-blue-400 truncate flex items-center gap-1 mt-0.5">
-                                          <Compass className="w-2.5 h-2.5 shrink-0" />
-                                          <span>{language === 'de' ? 'Richtung' : 'Direction'}:</span>
-                                          <span className="font-bold underline decoration-blue-400/40">{directionTerminus}</span>
-                                        </div>
-                                      )}
-                                    </div>
-                                  </div>
-                                  <span className="text-[11px] font-mono text-slate-400 shrink-0 ml-2">
-                                    {leg.durationMinutes} {t.min}
-                                  </span>
-                                </div>
-
-                                {/* Intermediate Stations List (Expanded by default per user request) */}
-                                {leg.stations.length > 2 && (
-                                  <div className="text-[11px] text-slate-500 dark:text-slate-400 pl-4 border-l-2 border-slate-200 dark:border-zinc-700">
+                              return (
+                                <React.Fragment key={lIdx}>
+                                  <div
+                                    className="p-3 rounded-2xl bg-slate-50 dark:bg-zinc-800/50 border border-slate-100 dark:border-zinc-800 space-y-2 text-xs"
+                                  >
                                     <div
-                                      className="flex items-center justify-between cursor-pointer py-0.5 hover:text-slate-900 dark:hover:text-slate-200 transition"
+                                      className="flex items-center justify-between cursor-pointer"
                                       onClick={(e) => {
                                         e.stopPropagation();
-                                        haptic.selection();
+                                        haptic.light();
                                         setCollapsedLegIndices((prev) => ({
                                           ...prev,
                                           [lIdx]: !prev[lIdx],
                                         }));
                                       }}
                                     >
-                                      <span className="font-medium">
-                                        {leg.stations.length - 2} {t.intermediateStops}
-                                      </span>
-                                      <span className="text-[10px] text-blue-500 flex items-center gap-0.5">
-                                        {isExpanded ? (
-                                          <>
-                                            <span>{language === 'de' ? 'Einklappen' : 'Collapse'}</span>
-                                            <ChevronUp className="w-3 h-3" />
-                                          </>
-                                        ) : (
-                                          <>
-                                            <span>{language === 'de' ? 'Ausklappen' : 'Expand'}</span>
-                                            <ChevronDown className="w-3 h-3" />
-                                          </>
-                                        )}
+                                      <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                                        <span
+                                          className="px-2 py-0.5 rounded text-[10px] font-bold text-white shrink-0 shadow-2xs"
+                                          style={{ backgroundColor: line?.color }}
+                                        >
+                                          {line?.badge}
+                                        </span>
+                                        <div className="min-w-0 flex-1">
+                                          <div className="font-semibold text-slate-800 dark:text-slate-200 truncate">
+                                            {STATIONS[leg.fromStationId]?.name} ➔{' '}
+                                            {STATIONS[leg.toStationId]?.name}
+                                          </div>
+                                          {directionTerminus && (
+                                            <div className="text-[10px] font-medium text-blue-600 dark:text-blue-400 truncate flex items-center gap-1 mt-0.5">
+                                              <Compass className="w-2.5 h-2.5 shrink-0" />
+                                              <span>{language === 'de' ? 'Richtung' : 'Direction'}:</span>
+                                              <span className="font-bold underline decoration-blue-400/40">{directionTerminus}</span>
+                                            </div>
+                                          )}
+                                        </div>
+                                      </div>
+                                      <span className="text-[11px] font-mono text-slate-400 shrink-0 ml-2">
+                                        {leg.durationMinutes} {t.min}
                                       </span>
                                     </div>
-                                    {isExpanded && (
-                                      <div className="pt-1.5 space-y-1 text-slate-600 dark:text-slate-300">
-                                        {leg.stations.slice(1, -1).map((stId: string) => (
-                                          <div key={stId} className="flex items-center gap-1.5">
-                                            <div className="w-1.5 h-1.5 rounded-full bg-slate-300 dark:bg-zinc-600" />
-                                            <span>{STATIONS[stId]?.name || stId}</span>
+
+                                    {/* Intermediate Stations List (Expanded by default per user request) */}
+                                    {leg.stations.length > 2 && (
+                                      <div className="text-[11px] text-slate-500 dark:text-slate-400 pl-4 border-l-2 border-slate-200 dark:border-zinc-700">
+                                        <div
+                                          className="flex items-center justify-between cursor-pointer py-0.5 hover:text-slate-900 dark:hover:text-slate-200 transition"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            haptic.selection();
+                                            setCollapsedLegIndices((prev) => ({
+                                              ...prev,
+                                              [lIdx]: !prev[lIdx],
+                                            }));
+                                          }}
+                                        >
+                                          <span className="font-medium">
+                                            {leg.stations.length - 2} {t.intermediateStops}
+                                          </span>
+                                          <span className="text-[10px] text-blue-500 flex items-center gap-0.5">
+                                            {isExpanded ? (
+                                              <>
+                                                <span>{language === 'de' ? 'Einklappen' : 'Collapse'}</span>
+                                                <ChevronUp className="w-3 h-3" />
+                                              </>
+                                            ) : (
+                                              <>
+                                                <span>{language === 'de' ? 'Ausklappen' : 'Expand'}</span>
+                                                <ChevronDown className="w-3 h-3" />
+                                              </>
+                                            )}
+                                          </span>
+                                        </div>
+                                        {isExpanded && (
+                                          <div className="pt-1.5 space-y-1 text-slate-600 dark:text-slate-300">
+                                            {leg.stations.slice(1, -1).map((stId: string) => (
+                                              <div key={stId} className="flex items-center gap-1.5">
+                                                <div className="w-1.5 h-1.5 rounded-full bg-slate-300 dark:bg-zinc-600" />
+                                                <span>{STATIONS[stId]?.name || stId}</span>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        )}
+                                      </div>
+                                    )}
+
+                                    {/* Disruptions on this leg */}
+                                    {legDisruptions.length > 0 && (
+                                      <div className="pt-1 space-y-1 border-t border-slate-200/60 dark:border-zinc-700/60">
+                                        {legDisruptions.map((disrupt) => (
+                                          <div
+                                            key={`leg-disrupt-${disrupt.id}`}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              haptic.light();
+                                              setModalDisruption(disrupt);
+                                            }}
+                                            className="p-1.5 rounded-xl bg-amber-500/10 dark:bg-amber-950/30 border border-amber-500/30 flex items-center justify-between gap-1.5 cursor-pointer hover:bg-amber-500/20 transition"
+                                          >
+                                            <div className="flex items-center gap-1.5 min-w-0">
+                                              <AlertTriangle className="w-3 h-3 text-amber-500 shrink-0" />
+                                              <span className="text-[10px] font-bold text-amber-800 dark:text-amber-300">
+                                                {getDisruptionTypeLabel(disrupt.type, language)}:
+                                              </span>
+                                              <span className="text-[10px] text-slate-700 dark:text-slate-300 truncate">
+                                                {disrupt.title}
+                                              </span>
+                                            </div>
+                                            <ExternalLink className="w-3 h-3 text-amber-500 shrink-0" />
                                           </div>
                                         ))}
                                       </div>
                                     )}
                                   </div>
-                                )}
 
-                                {/* Disruptions on this leg */}
-                                {legDisruptions.length > 0 && (
-                                  <div className="pt-1 space-y-1 border-t border-slate-200/60 dark:border-zinc-700/60">
-                                    {legDisruptions.map((disrupt) => (
-                                      <div
-                                        key={`leg-disrupt-${disrupt.id}`}
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          haptic.light();
-                                          setModalDisruption(disrupt);
-                                        }}
-                                        className="p-1.5 rounded-xl bg-amber-500/10 dark:bg-amber-950/30 border border-amber-500/30 flex items-center justify-between gap-1.5 cursor-pointer hover:bg-amber-500/20 transition"
-                                      >
-                                        <div className="flex items-center gap-1.5 min-w-0">
-                                          <AlertTriangle className="w-3 h-3 text-amber-500 shrink-0" />
-                                          <span className="text-[10px] font-bold text-amber-800 dark:text-amber-300">
-                                            {getDisruptionTypeLabel(disrupt.type, language)}:
-                                          </span>
-                                          <span className="text-[10px] text-slate-700 dark:text-slate-300 truncate">
-                                            {disrupt.title}
-                                          </span>
-                                        </div>
-                                        <ExternalLink className="w-3 h-3 text-amber-500 shrink-0" />
-                                      </div>
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })}
+                                  {reachedStopoverNum !== null && (
+                                    <div className="flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200/80 dark:border-amber-800/60 text-[11px] font-bold text-amber-700 dark:text-amber-300">
+                                      <Flag className="w-3.5 h-3.5 shrink-0 text-amber-500" />
+                                      <span className="truncate">
+                                        {t.waypointLabel} #{reachedStopoverNum}: {STATIONS[leg.toStationId]?.name}
+                                      </span>
+                                    </div>
+                                  )}
+                                </React.Fragment>
+                              );
+                            });
+                          })()}
                         </div>
                       )}
                     </motion.div>
@@ -947,10 +989,12 @@ export const IOSTripPlanner: React.FC<IOSTripPlannerProps> = ({
             >
               <div className="flex items-center justify-between pb-1">
                 <h3 className="text-base font-bold text-slate-900 dark:text-white">
-                  {pickerTarget === 'origin'
+                  {pickerTarget.type === 'origin'
                     ? t.selectStart
-                    : pickerTarget === 'destination'
+                    : pickerTarget.type === 'destination'
                     ? t.selectDestination
+                    : pickerTarget.type === 'edit-stopover'
+                    ? `${t.waypointLabel} #${pickerTarget.index + 1}`
                     : t.selectStopover}
                 </h3>
                 <button

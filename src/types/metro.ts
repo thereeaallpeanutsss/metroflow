@@ -125,6 +125,7 @@ export interface RouteOption {
   linesUsed: LineId[];
   accessible: boolean;
   stopoverStationId?: string;
+  stopoverStationIds?: string[];
   isAlternativeBypass?: boolean;
   bypassedDisruptionIds?: string[];
   affectedDisruptions?: Disruption[];
@@ -136,9 +137,11 @@ export interface SavedJourney {
   originId: string;
   destinationId: string;
   stopoverId?: string;
+  stopoverIds?: string[];
   originName: string;
   destinationName: string;
   stopoverName?: string;
+  stopoverNames?: string[];
   durationMinutes: number;
   transfersCount: number;
   linesUsed: LineId[];
@@ -150,12 +153,29 @@ export interface RecentRoute {
   originId: string;
   destinationId: string;
   stopoverId?: string;
+  stopoverIds?: string[];
   originName: string;
   destinationName: string;
   stopoverName?: string;
+  stopoverNames?: string[];
   durationMinutes?: number;
   transfersCount?: number;
   linesUsed?: LineId[];
+}
+
+export interface IsochroneEdge {
+  fromStationId: string;
+  toStationId: string;
+  lineId: LineId;
+  departureSeconds: number;
+  arrivalSeconds: number;
+}
+
+export interface IsochroneResult {
+  originId: string;
+  maxTimeSeconds: number;
+  stationTimes: Record<string, number>;
+  edges: IsochroneEdge[];
 }
 
 export type RoutePreference = 'fastest' | 'fewest-transfers' | 'prioritize-metro' | 'prioritize-ic' | 'accessible';

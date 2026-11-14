@@ -671,14 +671,19 @@ export const OptionsMenu: React.FC<OptionsMenuProps> = ({
                   <div>
                     <div className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5 flex-wrap">
                       <span>{journey.originName}</span>
-                      {journey.stopoverName && (
-                        <>
+                      {(journey.stopoverNames && journey.stopoverNames.length > 0
+                        ? journey.stopoverNames
+                        : journey.stopoverName
+                        ? [journey.stopoverName]
+                        : []
+                      ).map((stopName, sIdx) => (
+                        <React.Fragment key={sIdx}>
                           <span className="text-slate-400">➔</span>
                           <span className="text-blue-500 dark:text-blue-400">
-                            {journey.stopoverName} ({t.stopover})
+                            {stopName} ({t.stopover})
                           </span>
-                        </>
-                      )}
+                        </React.Fragment>
+                      ))}
                       <span className="text-slate-400">➔</span>
                       <span>{journey.destinationName}</span>
                     </div>

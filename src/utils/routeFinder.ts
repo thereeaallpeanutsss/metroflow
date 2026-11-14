@@ -8,6 +8,8 @@ import {
   Disruption,
   TravelTimeOverridesMap,
   RideStep,
+  IsochroneEdge,
+  IsochroneResult,
 } from '../types/metro';
 import { METRO_LINES, STATIONS, NETWORK_CONNECTIONS } from '../data/metroData';
 import { getSegmentTimeKey, getLocalCachedTravelTimes } from '../services/travelTimesService';
@@ -203,7 +205,12 @@ export function isCompleteSingleLineRoute(route: RouteOption | null | undefined)
     return { eligible: false, reason: 'no-route' };
   }
 
-  if (route.legs.length !== 1 || route.transfersCount > 0 || route.stopoverStationId) {
+  if (
+    route.legs.length !== 1 ||
+    route.transfersCount > 0 ||
+    route.stopoverStationId ||
+    (route.stopoverStationIds && route.stopoverStationIds.length > 0)
+  ) {
     return { eligible: false, reason: 'multi-line' };
   }
 
@@ -565,18 +572,35 @@ function isDuplicateRoute(existing: RouteOption[], candidate: RouteOption): bool
 }
 
 /**
- * Finds routes between origin and destination with an intermediate stopover station.
+ * Finds routes between origin and destination with 0, 1, or 2+ intermediate stopover waypoints.
  */
 export function findRoutesWithStopover(
   originId: string,
-  stopoverId: string | null,
+  stopoverInput: string | string[] | null | undefined,
   destinationId: string,
   preference: RoutePreference = 'fastest',
   avoidDisruptions: Disruption[] = [],
   activeDisruptions: Disruption[] = [],
   travelTimeOverrides?: TravelTimeOverridesMap
 ): RouteOption[] {
-  if (!stopoverId || stopoverId === originId || stopoverId === destinationId) {
+  const rawStopovers = Array.isArray(stopoverInput)
+    ? stopoverInput.filter((id): id is string => Boolean(id && STATIONS[id]))
+    : stopoverInput && STATIONS[stopoverInput]
+    ? [stopoverInput]
+    : [];
+
+  // Build ordered sequence and collapse consecutive duplicates so legs never start & end at same station
+  const rawSequence = [originId, ...rawStopovers, destinationId];
+  const sequence: string[] = [];
+  for (const stId of rawSequence) {
+    if (sequence.length === 0 || sequence[sequence.length - 1] !== stId) {
+      sequence.push(stId);
+    }
+  }
+
+  const intermediateStops = sequence.slice(1, -1);
+
+  if (intermediateStops.length === 0) {
     return findRoutes(
       originId,
       destinationId,
@@ -587,82 +611,223 @@ export function findRoutesWithStopover(
     );
   }
 
-  const routesToStopover = findRoutes(
-    originId,
-    stopoverId,
-    preference,
-    avoidDisruptions,
-    activeDisruptions,
-    travelTimeOverrides
-  );
-  const routesFromStopover = findRoutes(
-    stopoverId,
-    destinationId,
-    preference,
-    avoidDisruptions,
-    activeDisruptions,
-    travelTimeOverrides
-  );
-
-  if (routesToStopover.length === 0 || routesFromStopover.length === 0) {
-    return [];
+  const segmentResults: RouteOption[][] = [];
+  for (let i = 0; i < sequence.length - 1; i++) {
+    const segRoutes = findRoutes(
+      sequence[i],
+      sequence[i + 1],
+      preference,
+      avoidDisruptions,
+      activeDisruptions,
+      travelTimeOverrides
+    );
+    if (segRoutes.length === 0) {
+      return [];
+    }
+    segmentResults.push(segRoutes);
   }
 
-  const leg1 = routesToStopover[0];
-  const leg2 = routesFromStopover[0];
+  const combineSequence = (pickedSegments: RouteOption[], idxSuffix: string): RouteOption => {
+    const combinedLegs: RouteLeg[] = [];
+    const transfers: RouteTransfer[] = [];
+    const pathStationIds: string[] = [];
+    const linesUsedSet = new Set<LineId>();
+    const bypassedSet = new Set<string>();
+    let totalDurationMinutes = 0;
+    let totalStops = 0;
+    let accessible = true;
+    let isBypass = false;
 
-  const stopoverStation = STATIONS[stopoverId];
-  const lastLineLeg1 = leg1.legs[leg1.legs.length - 1]?.lineId;
-  const firstLineLeg2 = leg2.legs[0]?.lineId;
+    pickedSegments.forEach((seg, segIdx) => {
+      if (segIdx > 0) {
+        const prevSeg = pickedSegments[segIdx - 1];
+        const prevLastLine = prevSeg.legs[prevSeg.legs.length - 1]?.lineId;
+        const currFirstLine = seg.legs[0]?.lineId;
+        const waypointId = sequence[segIdx];
+        const waypointStation = STATIONS[waypointId];
 
-  const requiresTransferAtStopover = lastLineLeg1 !== firstLineLeg2;
-  const transfers: RouteTransfer[] = [...leg1.transfers];
+        if (prevLastLine && currFirstLine && prevLastLine !== currFirstLine) {
+          transfers.push({
+            stationId: waypointId,
+            fromLineId: prevLastLine,
+            toLineId: currFirstLine,
+            walkMinutes: 3,
+            instructions: `Umsteigen am Zwischenstopp ${waypointStation?.name || waypointId}: Wechseln von ${METRO_LINES[prevLastLine]?.name} in ${METRO_LINES[currFirstLine]?.name}`,
+          });
+          totalDurationMinutes += 3;
+        }
+      }
 
-  if (requiresTransferAtStopover && lastLineLeg1 && firstLineLeg2) {
-    transfers.push({
-      stationId: stopoverId,
-      fromLineId: lastLineLeg1,
-      toLineId: firstLineLeg2,
-      walkMinutes: 3,
-      instructions: `Umsteigen am Zwischenstopp ${stopoverStation?.name || stopoverId}: Wechseln von ${METRO_LINES[lastLineLeg1]?.name} in ${METRO_LINES[firstLineLeg2]?.name}`,
+      combinedLegs.push(...seg.legs);
+      transfers.push(...seg.transfers);
+
+      if (segIdx === 0) {
+        pathStationIds.push(...seg.pathStationIds);
+      } else {
+        pathStationIds.push(...seg.pathStationIds.slice(1));
+      }
+
+      seg.linesUsed.forEach((l) => linesUsedSet.add(l));
+      totalDurationMinutes += seg.totalDurationMinutes;
+      totalStops += seg.totalStops;
+      accessible = accessible && seg.accessible;
+      if (seg.isAlternativeBypass) isBypass = true;
+      (seg.bypassedDisruptionIds || []).forEach((id) => bypassedSet.add(id));
     });
-  }
 
-  transfers.push(...leg2.transfers);
+    const stopNames = intermediateStops.map((id) => STATIONS[id]?.name || id);
+    const title = `Über ${stopNames.join(' → ')}${isBypass ? ' (Umfahrung)' : ''}`;
 
-  const combinedLegs = [...leg1.legs, ...leg2.legs];
-  const combinedPathStationIds = [...leg1.pathStationIds, ...leg2.pathStationIds.slice(1)];
-  const combinedLinesUsed = Array.from(new Set([...leg1.linesUsed, ...leg2.linesUsed]));
+    const combinedRoute: RouteOption = {
+      id: `stopover-route-${idxSuffix}-${Date.now()}`,
+      title,
+      totalDurationMinutes: roundMinutes(totalDurationMinutes),
+      transfersCount: transfers.length,
+      totalStops,
+      legs: combinedLegs,
+      transfers,
+      pathStationIds,
+      linesUsed: Array.from(linesUsedSet),
+      accessible,
+      stopoverStationId: intermediateStops[0],
+      stopoverStationIds: intermediateStops,
+      isAlternativeBypass: isBypass,
+      bypassedDisruptionIds: bypassedSet.size > 0 ? Array.from(bypassedSet) : undefined,
+    };
 
-  const isBypass = !!(leg1.isAlternativeBypass || leg2.isAlternativeBypass);
-  const title = isBypass
-    ? `Über ${stopoverStation?.name || stopoverId} (Umfahrung)`
-    : `Über ${stopoverStation?.name || stopoverId}`;
-
-  const combinedRoute: RouteOption = {
-    id: `stopover-route-${Date.now()}`,
-    title,
-    totalDurationMinutes: roundMinutes(
-      leg1.totalDurationMinutes + leg2.totalDurationMinutes + (requiresTransferAtStopover ? 3 : 0)
-    ),
-    transfersCount: transfers.length,
-    totalStops: leg1.totalStops + leg2.totalStops,
-    legs: combinedLegs,
-    transfers,
-    pathStationIds: combinedPathStationIds,
-    linesUsed: combinedLinesUsed,
-    accessible: leg1.accessible && leg2.accessible,
-    stopoverStationId: stopoverId,
-    isAlternativeBypass: isBypass,
-    bypassedDisruptionIds: Array.from(
-      new Set([...(leg1.bypassedDisruptionIds || []), ...(leg2.bypassedDisruptionIds || [])])
-    ),
+    const disruptionPool = activeDisruptions.length > 0 ? activeDisruptions : avoidDisruptions;
+    combinedRoute.affectedDisruptions = getDisruptionsAffectingRoute(combinedRoute, disruptionPool);
+    return combinedRoute;
   };
 
-  const disruptionPool = activeDisruptions.length > 0 ? activeDisruptions : avoidDisruptions;
-  combinedRoute.affectedDisruptions = getDisruptionsAffectingRoute(combinedRoute, disruptionPool);
+  const results: RouteOption[] = [
+    combineSequence(
+      segmentResults.map((segList) => segList[0]),
+      'primary'
+    ),
+  ];
 
-  return [combinedRoute];
+  // Build an optional alternative itinerary if any segment has a distinct 2nd route option
+  const altPicks = segmentResults.map((segList) => (segList.length > 1 ? segList[1] : segList[0]));
+  const hasAnyDiff = altPicks.some((seg, idx) => seg !== segmentResults[idx][0]);
+  if (hasAnyDiff) {
+    const altCombined = combineSequence(altPicks, 'alt');
+    if (!isDuplicateRoute(results, altCombined)) {
+      results.push(altCombined);
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Computes exact travel times in seconds from `originId` to every reachable station across the network,
+ * along with the shortest-path track edges so Isochrone Mode can highlight both reachable routes and stations.
+ */
+export function computeStationIsochrone(
+  originId: string,
+  avoidDisruptions: Disruption[] = [],
+  travelTimeOverrides?: TravelTimeOverridesMap
+): IsochroneResult {
+  if (!originId || !STATIONS[originId]) {
+    return {
+      originId,
+      maxTimeSeconds: 0,
+      stationTimes: {},
+      edges: [],
+    };
+  }
+
+  interface IsoQueueNode {
+    stationId: string;
+    lineId: LineId | null;
+    timeSeconds: number;
+  }
+
+  const bestStateSeconds = new Map<string, number>();
+  const bestStationRecord = new Map<string, { timeSeconds: number; parent: IsochroneEdge | null }>();
+
+  bestStateSeconds.set(`${originId}|NONE`, 0);
+  bestStationRecord.set(originId, { timeSeconds: 0, parent: null });
+
+  const queue: IsoQueueNode[] = [{ stationId: originId, lineId: null, timeSeconds: 0 }];
+
+  while (queue.length > 0) {
+    queue.sort((a, b) => a.timeSeconds - b.timeSeconds);
+    const current = queue.shift()!;
+    const currentStateKey = `${current.stationId}|${current.lineId || 'NONE'}`;
+
+    if (current.timeSeconds > (bestStateSeconds.get(currentStateKey) ?? Infinity)) {
+      continue;
+    }
+
+    const edges = adjacencyList.get(current.stationId) || [];
+    for (const edge of edges) {
+      // Skip disrupted tracks completely in Isochrone reachability so maxTimeSeconds stays true travel time
+      if (
+        avoidDisruptions.length > 0 &&
+        isEdgeDisrupted(current.stationId, edge.to, edge.lineId, avoidDisruptions)
+      ) {
+        continue;
+      }
+
+      const segSeconds = getEffectiveSegmentSeconds(
+        edge.lineId,
+        current.stationId,
+        edge.to,
+        travelTimeOverrides
+      );
+      const isTransfer = current.lineId !== null && current.lineId !== edge.lineId;
+      const transferSeconds = isTransfer ? 180 : 0;
+      const departureSeconds = current.timeSeconds + transferSeconds;
+      const arrivalSeconds = departureSeconds + segSeconds;
+
+      const nextStateKey = `${edge.to}|${edge.lineId}`;
+      if (arrivalSeconds < (bestStateSeconds.get(nextStateKey) ?? Infinity)) {
+        bestStateSeconds.set(nextStateKey, arrivalSeconds);
+        queue.push({
+          stationId: edge.to,
+          lineId: edge.lineId,
+          timeSeconds: arrivalSeconds,
+        });
+      }
+
+      const existingStationBest = bestStationRecord.get(edge.to);
+      if (!existingStationBest || arrivalSeconds < existingStationBest.timeSeconds) {
+        bestStationRecord.set(edge.to, {
+          timeSeconds: arrivalSeconds,
+          parent: {
+            fromStationId: current.stationId,
+            toStationId: edge.to,
+            lineId: edge.lineId,
+            departureSeconds,
+            arrivalSeconds,
+          },
+        });
+      }
+    }
+  }
+
+  const stationTimes: Record<string, number> = {};
+  const resultEdges: IsochroneEdge[] = [];
+  let maxTimeSeconds = 0;
+
+  bestStationRecord.forEach((rec, stId) => {
+    stationTimes[stId] = rec.timeSeconds;
+    if (rec.timeSeconds > maxTimeSeconds) {
+      maxTimeSeconds = rec.timeSeconds;
+    }
+    if (rec.parent) {
+      resultEdges.push(rec.parent);
+    }
+  });
+
+  return {
+    originId,
+    maxTimeSeconds,
+    stationTimes,
+    edges: resultEdges,
+  };
 }
 
 function dijkstraSearch(

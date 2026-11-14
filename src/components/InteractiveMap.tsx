@@ -1,9 +1,9 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Station, LineId, RouteOption, Disruption, ActiveRideState, TravelTimeOverridesMap } from '../types/metro';
+import { Station, LineId, RouteOption, Disruption, ActiveRideState, TravelTimeOverridesMap, IsochroneResult } from '../types/metro';
 import { STATIONS, METRO_LINES } from '../data/metroData';
 import { buildLegTrackPath } from '../utils/trackPaths';
-import { getLineTotalTravelTime } from '../utils/routeFinder';
+import { getLineTotalTravelTime, computeStationIsochrone } from '../utils/routeFinder';
 import { Language, translations, getDisruptionTypeLabel } from '../utils/i18n';
 import { ConfirmDeleteDisruptionModal } from './ConfirmDeleteDisruptionModal';
 import { haptic } from '../utils/haptics';
@@ -38,7 +38,33 @@ import {
   Trash2,
   Search,
   Navigation,
+  Clock,
+  Radar,
 } from 'lucide-react';
+
+function getIsochroneTierColor(seconds: number): string {
+  if (seconds <= 300) return '#10B981'; // 0-5 min: Emerald
+  if (seconds <= 600) return '#06B6D4'; // 5-10 min: Cyan
+  if (seconds <= 900) return '#F59E0B'; // 10-15 min: Amber
+  return '#8B5CF6'; // >15 min: Violet
+}
+
+function formatSecondsVerbose(seconds: number): string {
+  const s = Math.max(0, Math.round(seconds));
+  const mins = Math.floor(s / 60);
+  const rem = s % 60;
+  if (mins === 0) return `${rem}s`;
+  if (rem === 0) return `${mins} min`;
+  return `${mins}:${rem.toString().padStart(2, '0')} min`;
+}
+
+function formatSecondsCompactBadge(seconds: number): string {
+  const s = Math.max(0, Math.round(seconds));
+  if (s === 0) return '0s';
+  if (s < 60) return `${s}s`;
+  const mins = s / 60;
+  return `${Number.isInteger(mins) ? mins : mins.toFixed(1)}m`;
+}
 
 interface InteractiveMapProps {
   language: Language;
@@ -46,6 +72,7 @@ interface InteractiveMapProps {
   selectedOriginId: string | null;
   selectedDestinationId: string | null;
   selectedStopoverId?: string | null;
+  selectedStopoverIds?: string[];
   activeRoute: RouteOption | null;
   activeLineFilter: LineId | 'ALL';
   onSelectLineFilter?: (lineId: LineId | 'ALL') => void;
@@ -60,6 +87,7 @@ interface InteractiveMapProps {
   onSetDestination: (stationId: string) => void;
   onSetStopover?: (stationId: string) => void;
   disruptions?: Disruption[];
+  avoidDisruptions?: boolean;
   userConfirmedIds?: string[];
   userResolvedIds?: string[];
   onConfirmDisruption?: (id: string) => void;
@@ -82,6 +110,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
   selectedOriginId,
   selectedDestinationId,
   selectedStopoverId,
+  selectedStopoverIds,
   activeRoute,
   activeLineFilter,
   onSelectLineFilter,
@@ -96,6 +125,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
   onSetDestination,
   onSetStopover,
   disruptions = [],
+  avoidDisruptions = false,
   userConfirmedIds = [],
   userResolvedIds = [],
   onConfirmDisruption,
@@ -112,6 +142,13 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
   travelTimeOverrides,
 }) => {
   const t = translations[language];
+
+  const effectiveStopoverIds = useMemo(() => {
+    if (selectedStopoverIds && selectedStopoverIds.length > 0) {
+      return selectedStopoverIds;
+    }
+    return selectedStopoverId ? [selectedStopoverId] : [];
+  }, [selectedStopoverIds, selectedStopoverId]);
 
   // Detect mobile width to provide an optimized, centered initial view
   const [windowWidth, setWindowWidth] = useState(() =>
@@ -150,6 +187,11 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
   const [isLineCardCollapsed, setIsLineCardCollapsed] = useState(false);
   const [isDisruptionCardCollapsed, setIsDisruptionCardCollapsed] = useState(false);
 
+  // Isochrone Reachability Explorer State
+  const [isochroneEnabled, setIsochroneEnabled] = useState(false);
+  const [isochroneOriginId, setIsochroneOriginId] = useState<string | null>(null);
+  const [isochroneBudgetSeconds, setIsochroneBudgetSeconds] = useState<number>(600);
+
   // Independent smoothly draggable info card state
   const isInfoCardDraggingRef = useRef(false);
   const dragMovedRef = useRef(false);
@@ -171,7 +213,10 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
       onSelectLineFilter(lId);
     }
   };
-  const hasBottomSheet = Boolean(clickedStationId || selectedDisruption || clickedLineId);
+  const showFloatingIsochroneHud = Boolean(
+    isochroneEnabled && isochroneOriginId && !clickedStationId && !selectedDisruption && !clickedLineId
+  );
+  const hasBottomSheet = Boolean(clickedStationId || selectedDisruption || clickedLineId || showFloatingIsochroneHud);
 
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -538,8 +583,69 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
   // Base background opacity when a route is active
   const baseLineOpacity = activeRoute ? 0.2 : 0.9;
 
+  // Isochrone reachability computation for selected station
+  const isochroneResult: IsochroneResult | null = useMemo(() => {
+    if (!isochroneEnabled || !isochroneOriginId) return null;
+    return computeStationIsochrone(
+      isochroneOriginId,
+      avoidDisruptions ? disruptions.filter((d) => d.isActive) : [],
+      travelTimeOverrides
+    );
+  }, [isochroneEnabled, isochroneOriginId, avoidDisruptions, disruptions, travelTimeOverrides]);
+
+  const isochroneMaxSeconds = isochroneResult?.maxTimeSeconds || 0;
+  const effectiveIsochroneBudgetSeconds = isochroneResult
+    ? Math.min(Math.max(0, isochroneBudgetSeconds), isochroneMaxSeconds)
+    : 0;
+
+  const reachableStationSet = useMemo(() => {
+    const set = new Set<string>();
+    if (!isochroneResult) return set;
+    Object.entries(isochroneResult.stationTimes).forEach(([stId, sec]) => {
+      if (sec <= effectiveIsochroneBudgetSeconds) {
+        set.add(stId);
+      }
+    });
+    return set;
+  }, [isochroneResult, effectiveIsochroneBudgetSeconds]);
+
+  const reachableIsochroneEdges = useMemo(() => {
+    if (!isochroneResult) return [];
+    return isochroneResult.edges
+      .filter((edge) => edge.arrivalSeconds <= effectiveIsochroneBudgetSeconds)
+      .map((edge) => ({
+        ...edge,
+        pathD: buildLegTrackPath(edge.lineId, [edge.fromStationId, edge.toStationId]),
+        color: getIsochroneTierColor(edge.arrivalSeconds),
+      }))
+      .filter((item) => Boolean(item.pathD));
+  }, [isochroneResult, effectiveIsochroneBudgetSeconds]);
+
+  const handleToggleIsochroneForStation = (stationId: string) => {
+    haptic.medium();
+    if (isochroneEnabled && isochroneOriginId === stationId) {
+      setIsochroneEnabled(false);
+    } else {
+      const preview = computeStationIsochrone(
+        stationId,
+        avoidDisruptions ? disruptions.filter((d) => d.isActive) : [],
+        travelTimeOverrides
+      );
+      setIsochroneOriginId(stationId);
+      setIsochroneEnabled(true);
+      setIsochroneBudgetSeconds((prev) => {
+        if (preview.maxTimeSeconds <= 0) return 0;
+        const clamped = Math.min(Math.max(prev, 300), preview.maxTimeSeconds);
+        return prev === 0 ? Math.min(600, preview.maxTimeSeconds) : clamped;
+      });
+    }
+  };
+
   // Highlight lines passing through the clicked station (or active route or clickedLineId)
   const isLineHighlighted = (lineId: string) => {
+    if (isochroneEnabled && isochroneResult) {
+      return false;
+    }
     if (clickedLineId) {
       return clickedLineId === lineId;
     }
@@ -556,6 +662,9 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
   const getLineOpacity = (lineId: string, base: number = baseLineOpacity) => {
     if (clickedLineId) {
       return clickedLineId === lineId ? 1 : 0.08;
+    }
+    if (isochroneEnabled && isochroneResult) {
+      return 0.14;
     }
     if (clickedStationId) {
       const st = STATIONS[clickedStationId];
@@ -606,13 +715,16 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
       .slice(0, 6);
   }, [searchQuery]);
 
-  // Filter stations to show based on showMetroLayer and showICLayer, or if on active journey
+  // Filter stations to show based on showMetroLayer and showICLayer, or if on active journey / isochrone
   const visibleStations = useMemo(() => {
     const isICLine = (l: string) =>
       l.startsWith('IC') ||
       ['U-Türkis', 'U-Pink', 'U-Dunkelblau', 'U-Hellblau', 'U-Violett'].includes(l);
     return Object.values(STATIONS).filter((st) => {
       if (activeRoute && activeRoute.pathStationIds.includes(st.id)) return true;
+      if (isochroneEnabled && isochroneResult && (reachableStationSet.has(st.id) || st.id === isochroneOriginId)) {
+        return true;
+      }
       if (st.id === 'kuhl-town') return true;
       const hasMetro = st.lines.some((l) => !isICLine(l));
       const hasIC = st.lines.some(isICLine);
@@ -622,7 +734,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
       if (!showMetroLayer && showICLayer) return hasIC;
       return false;
     });
-  }, [activeRoute, showMetroLayer, showICLayer]);
+  }, [activeRoute, showMetroLayer, showICLayer, isochroneEnabled, isochroneResult, reachableStationSet, isochroneOriginId]);
 
   return (
     <div
@@ -898,7 +1010,9 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
           </h2>
           <div className="text-[9px] sm:text-[10px] text-slate-500 dark:text-slate-400 font-medium truncate flex items-center gap-1.5 flex-wrap">
             <span>
-              {clickedLine
+              {isochroneEnabled && isochroneOriginId
+                ? `${t.exploreNearbyTitle}: ${STATIONS[isochroneOriginId]?.name} (≤ ${formatSecondsVerbose(effectiveIsochroneBudgetSeconds)})`
+                : clickedLine
                 ? (language === 'de' ? `Linie ${clickedLine.badge} hervorgehoben` : `Line ${clickedLine.badge} highlighted`)
                 : clickedStation
                 ? (language === 'de' ? `Linien an ${clickedStation.name} hervorgehoben` : `Lines at ${clickedStation.name} highlighted`)
@@ -906,6 +1020,18 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                 ? (language === 'de' ? 'Aktive Verbindung hervorgehoben' : 'Active route highlighted')
                 : (language === 'de' ? 'Gesamtnetz' : 'Full network')}
             </span>
+            {isochroneEnabled && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  haptic.light();
+                  setIsochroneEnabled(false);
+                }}
+                className="text-[9px] sm:text-[10px] text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-0.5 ml-1 font-semibold"
+              >
+                <span>{t.closeIsochrone}</span>
+              </button>
+            )}
             {(clickedStation || clickedLine) && (
               <button
                 onClick={(e) => {
@@ -1076,7 +1202,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
         />
 
         {/* ----------------- BASE METRO LINES (BACKGROUND) ----------------- */}
-        {(showMetroLayer || (activeRoute && activeRoute.linesUsed.some((l) => !l.startsWith('IC') && !['U-Türkis', 'U-Pink', 'U-Dunkelblau', 'U-Hellblau', 'U-Violett'].includes(l))) || (clickedStation && clickedStation.lines.some((l) => !l.startsWith('IC') && !['U-Türkis', 'U-Pink', 'U-Dunkelblau', 'U-Hellblau', 'U-Violett'].includes(l))) || (clickedLineId && !clickedLineId.startsWith('IC') && !['U-Türkis', 'U-Pink', 'U-Dunkelblau', 'U-Hellblau', 'U-Violett'].includes(clickedLineId))) && (
+        {(showMetroLayer || isochroneEnabled || (activeRoute && activeRoute.linesUsed.some((l) => !l.startsWith('IC') && !['U-Türkis', 'U-Pink', 'U-Dunkelblau', 'U-Hellblau', 'U-Violett'].includes(l))) || (clickedStation && clickedStation.lines.some((l) => !l.startsWith('IC') && !['U-Türkis', 'U-Pink', 'U-Dunkelblau', 'U-Hellblau', 'U-Violett'].includes(l))) || (clickedLineId && !clickedLineId.startsWith('IC') && !['U-Türkis', 'U-Pink', 'U-Dunkelblau', 'U-Hellblau', 'U-Violett'].includes(clickedLineId))) && (
           <g id="metro-train-layer" className="transition-opacity duration-300">
             {/* 1. GREEN LINE (U-Grün / U1) - Villen Viertel Nord ↔ Daniel Tower ↔ Strand ↔ Traphgon Airport */}
             <g
@@ -1376,7 +1502,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
         )}
 
         {/* ----------------- INTER CITY TRAINS (IC-ZÜGE) LAYER (Gestreifte Linien) ----------------- */}
-        {(showICLayer || (activeRoute && activeRoute.linesUsed.some((l) => l.startsWith('IC') || ['U-Türkis', 'U-Pink', 'U-Dunkelblau', 'U-Hellblau', 'U-Violett'].includes(l))) || (clickedStation && clickedStation.lines.some((l) => l.startsWith('IC') || ['U-Türkis', 'U-Pink', 'U-Dunkelblau', 'U-Hellblau', 'U-Violett'].includes(l))) || (clickedLineId && (clickedLineId.startsWith('IC') || ['U-Türkis', 'U-Pink', 'U-Dunkelblau', 'U-Hellblau', 'U-Violett'].includes(clickedLineId)))) && (
+        {(showICLayer || isochroneEnabled || (activeRoute && activeRoute.linesUsed.some((l) => l.startsWith('IC') || ['U-Türkis', 'U-Pink', 'U-Dunkelblau', 'U-Hellblau', 'U-Violett'].includes(l))) || (clickedStation && clickedStation.lines.some((l) => l.startsWith('IC') || ['U-Türkis', 'U-Pink', 'U-Dunkelblau', 'U-Hellblau', 'U-Violett'].includes(l))) || (clickedLineId && (clickedLineId.startsWith('IC') || ['U-Türkis', 'U-Pink', 'U-Dunkelblau', 'U-Hellblau', 'U-Violett'].includes(clickedLineId)))) && (
           <g id="ic-train-layer" className="transition-opacity duration-300">
             {/* IC Nordwest: Blue Lagoon / Willow Creek ↔ Villen Viertel West ↔ Gare du Nord */}
             <g
@@ -1951,6 +2077,62 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
           </g>
         </g>
 
+        {/* ----------------- ISOCHRONE REACHABLE ROUTES & ORIGIN PULSE ----------------- */}
+        {isochroneEnabled && isochroneResult && (
+          <g id="isochrone-routes-layer" style={{ pointerEvents: 'none' }}>
+            {reachableIsochroneEdges.map((edge, idx) => (
+              <React.Fragment key={`iso-edge-${edge.fromStationId}-${edge.toStationId}-${edge.lineId}-${idx}`}>
+                <path
+                  d={edge.pathD}
+                  fill="none"
+                  stroke={edge.color}
+                  strokeWidth="12"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  opacity={highlightGlowEnabled ? '0.38' : '0.2'}
+                  filter={highlightGlowEnabled ? 'url(#routeGlow)' : undefined}
+                />
+                <path
+                  d={edge.pathD}
+                  fill="none"
+                  stroke={edge.color}
+                  strokeWidth="6.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  opacity="0.95"
+                />
+              </React.Fragment>
+            ))}
+
+            {isochroneOriginId && STATIONS[isochroneOriginId] && (
+              <g>
+                <circle
+                  cx={STATIONS[isochroneOriginId].x}
+                  cy={STATIONS[isochroneOriginId].y}
+                  r="19"
+                  fill="none"
+                  stroke="#10B981"
+                  strokeWidth="2.5"
+                  opacity="0.6"
+                  className="animate-ping"
+                  style={{
+                    transformOrigin: `${STATIONS[isochroneOriginId].x}px ${STATIONS[isochroneOriginId].y}px`,
+                  }}
+                />
+                <circle
+                  cx={STATIONS[isochroneOriginId].x}
+                  cy={STATIONS[isochroneOriginId].y}
+                  r="15"
+                  fill="#10B981"
+                  fillOpacity="0.18"
+                  stroke="#10B981"
+                  strokeWidth="3"
+                />
+              </g>
+            )}
+          </g>
+        )}
+
         {/* ----------------- ACTIVE JOURNEY HIGHLIGHT (ONLY THE TRAVELED PATH) ----------------- */}
         {/* Strictly follows the exact geometric lines as presented on the map (rectangular, zero diagonal shortcuts) */}
         {activeRoute && (
@@ -2092,16 +2274,37 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
         {visibleStations.map((station) => {
           const isOrigin = selectedOriginId === station.id;
           const isDest = selectedDestinationId === station.id;
-          const isStopover = selectedStopoverId === station.id;
+          const stopoverPositions = effectiveStopoverIds.reduce<number[]>((acc, sId, idx) => {
+            if (sId === station.id) acc.push(idx + 1);
+            return acc;
+          }, []);
+          const isStopover = stopoverPositions.length > 0;
           const isTransfer = isTransferStation(station.id);
           const isOnRoute = isStationOnRoute(station.id);
           const isHovered = hoveredStationId === station.id;
           const isClicked = clickedStationId === station.id;
 
-          const nodeOpacity = activeRoute
-            ? (isOnRoute ? 1 : 0.35)
-            : clickedLineId
-            ? (station.lines.includes(clickedLineId) ? 1 : 0.18)
+          const isIsoMode = Boolean(isochroneEnabled && isochroneResult);
+          const isIsoOrigin = isIsoMode && isochroneOriginId === station.id;
+          const isoTimeSeconds = isIsoMode ? isochroneResult!.stationTimes[station.id] : undefined;
+          const isIsoReachable =
+            isIsoMode &&
+            isoTimeSeconds !== undefined &&
+            isoTimeSeconds <= effectiveIsochroneBudgetSeconds;
+          const isoColor = isIsoReachable && isoTimeSeconds !== undefined ? getIsochroneTierColor(isoTimeSeconds) : null;
+
+          const nodeOpacity = clickedLineId
+            ? station.lines.includes(clickedLineId)
+              ? 1
+              : 0.18
+            : isIsoMode
+            ? isIsoReachable || isIsoOrigin || isClicked
+              ? 1
+              : 0.18
+            : activeRoute
+            ? isOnRoute
+              ? 1
+              : 0.35
             : 1;
 
           // Double-ring major interchange stations from IMG_8214
@@ -2136,6 +2339,9 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
           const isCarlsHotel = station.id === 'carls-hotel';
           const isKuhlTown = station.id === 'kuhl-town';
 
+          const isSearchMatch =
+            searchQuery.trim().length > 1 && matchingStations.some((m) => m.id === station.id);
+
           return (
             <g
               key={station.id}
@@ -2149,8 +2355,49 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                 if (!isDraggingRef.current) setHoveredStationId(null);
               }}
             >
+              {/* Isochrone Reachable Station Ring & Time Badge */}
+              {isIsoReachable && isoColor && !isIsoOrigin && (
+                <g style={{ pointerEvents: 'none' }}>
+                  <circle
+                    cx={station.x}
+                    cy={station.y}
+                    r={12}
+                    fill={isoColor}
+                    fillOpacity={highlightGlowEnabled ? '0.28' : '0.16'}
+                    stroke={isoColor}
+                    strokeWidth="2.5"
+                    filter={highlightGlowEnabled ? 'url(#routeGlow)' : undefined}
+                  />
+                  {isoTimeSeconds !== undefined && (
+                    <g transform={`translate(${station.x + 12}, ${station.y - 11})`}>
+                      <rect
+                        x="-12"
+                        y="-6"
+                        width="24"
+                        height="12"
+                        rx="4"
+                        fill={isoColor}
+                        stroke={theme === 'dark' ? '#020617' : '#FFFFFF'}
+                        strokeWidth="1.2"
+                      />
+                      <text
+                        x="0"
+                        y="2.5"
+                        textAnchor="middle"
+                        fontSize="7"
+                        fontWeight="800"
+                        fill="#FFFFFF"
+                        className="select-none pointer-events-none font-sans"
+                      >
+                        {formatSecondsCompactBadge(isoTimeSeconds)}
+                      </text>
+                    </g>
+                  )}
+                </g>
+              )}
+
               {/* Highlight Halo for Selected / Active Journey Nodes / Search Matches */}
-              {(isOrigin || isDest || isStopover || isClicked || isHovered || (searchQuery.trim().length > 1 && matchingStations.some((m) => m.id === station.id))) && (
+              {(isOrigin || isDest || isStopover || isClicked || isHovered || isSearchMatch) && (
                 <circle
                   cx={station.x}
                   cy={station.y}
@@ -2184,6 +2431,31 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                   strokeOpacity={highlightGlowEnabled ? '0.85' : '0.9'}
                   filter={highlightGlowEnabled ? 'url(#routeGlow)' : undefined}
                 />
+              )}
+
+              {/* Multi-Stopover Sequence Index Pill */}
+              {isStopover && (
+                <g transform={`translate(${station.x + 11}, ${station.y - 11})`} style={{ pointerEvents: 'none' }}>
+                  <circle
+                    cx="0"
+                    cy="0"
+                    r={stopoverPositions.length > 1 ? 8 : 6.5}
+                    fill="#0284C7"
+                    stroke="#FFFFFF"
+                    strokeWidth="1.5"
+                  />
+                  <text
+                    x="0"
+                    y="2.5"
+                    textAnchor="middle"
+                    fontSize="7.5"
+                    fontWeight="900"
+                    fill="#FFFFFF"
+                    className="select-none pointer-events-none font-sans"
+                  >
+                    {stopoverPositions.join(',')}
+                  </text>
+                </g>
               )}
 
               {/* Station Geometric Marker (matching IMG_8214 diagram) */}
@@ -3342,6 +3614,155 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                     );
                   })()}
 
+                  {/* Isochrone Reachability Mode ("Explore Nearby") Controls */}
+                  {(() => {
+                    const isThisIsoOrigin = isochroneEnabled && isochroneOriginId === clickedStation.id;
+                    const clickedTimeFromIsoOrigin =
+                      isochroneEnabled && isochroneResult && !isThisIsoOrigin
+                        ? isochroneResult.stationTimes[clickedStation.id]
+                        : undefined;
+                    const totalStationsInResult = isochroneResult
+                      ? Object.keys(isochroneResult.stationTimes).length
+                      : 0;
+
+                    return (
+                      <div
+                        className="mt-2 p-2.5 rounded-2xl bg-emerald-50/70 dark:bg-emerald-950/25 border border-emerald-200/80 dark:border-emerald-800/50 space-y-2.5"
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onTouchStart={(e) => e.stopPropagation()}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <div className="p-1.5 rounded-xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 shrink-0">
+                              <Radar className="w-4 h-4" />
+                            </div>
+                            <div className="min-w-0">
+                              <span className="text-xs font-bold text-slate-900 dark:text-white block truncate">
+                                {t.exploreNearbyTitle}
+                              </span>
+                              <span className="text-[10px] text-slate-500 dark:text-slate-400 block truncate">
+                                {isThisIsoOrigin
+                                  ? `${reachableStationSet.size} / ${totalStationsInResult} ${t.reachableStationsCount}`
+                                  : isochroneEnabled && isochroneOriginId
+                                  ? clickedTimeFromIsoOrigin !== undefined
+                                    ? clickedTimeFromIsoOrigin <= effectiveIsochroneBudgetSeconds
+                                      ? `${t.reachableInLabel} ${formatSecondsVerbose(clickedTimeFromIsoOrigin)}`
+                                      : `${t.unreachableInBudget} (${formatSecondsVerbose(clickedTimeFromIsoOrigin)})`
+                                    : t.unreachableInBudget
+                                  : t.exploreNearbyOff}
+                              </span>
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => handleToggleIsochroneForStation(clickedStation.id)}
+                            className={`px-2.5 py-1.5 rounded-xl text-[11px] font-bold transition active:scale-95 shrink-0 cursor-pointer ${
+                              isThisIsoOrigin
+                                ? 'bg-emerald-600 text-white shadow-sm'
+                                : 'bg-white dark:bg-slate-800 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/50'
+                            }`}
+                          >
+                            {isThisIsoOrigin
+                              ? t.closeIsochrone
+                              : isochroneEnabled
+                              ? t.switchIsochroneOrigin
+                              : t.exploreNearbyOff}
+                          </button>
+                        </div>
+
+                        {isThisIsoOrigin && isochroneResult && (
+                          <div className="space-y-2 pt-1.5 border-t border-emerald-200/60 dark:border-emerald-800/40">
+                            <div className="flex items-center justify-between text-[11px]">
+                              <span className="text-slate-600 dark:text-slate-300 font-medium flex items-center gap-1">
+                                <Clock className="w-3 h-3 text-emerald-500" />
+                                <span>{t.exploreNearbyToggle}</span>
+                              </span>
+                              <span className="font-mono font-black text-emerald-700 dark:text-emerald-300">
+                                {formatSecondsVerbose(effectiveIsochroneBudgetSeconds)}
+                              </span>
+                            </div>
+
+                            {/* 0s to longest possible journey time slider */}
+                            <input
+                              type="range"
+                              min={0}
+                              max={isochroneMaxSeconds}
+                              step={1}
+                              value={effectiveIsochroneBudgetSeconds}
+                              onChange={(e) => setIsochroneBudgetSeconds(Number(e.target.value))}
+                              onPointerDown={(e) => e.stopPropagation()}
+                              onMouseDown={(e) => e.stopPropagation()}
+                              onTouchStart={(e) => e.stopPropagation()}
+                              className="w-full h-2 rounded-lg accent-emerald-500 cursor-pointer"
+                            />
+
+                            <div className="flex items-center justify-between text-[9px] text-slate-400 font-mono -mt-1">
+                              <span>0s</span>
+                              <span>
+                                {t.maxJourneyTimeLabel}: {formatSecondsVerbose(isochroneMaxSeconds)}
+                              </span>
+                            </div>
+
+                            {/* Quick 5 / 10 / 15 min / Max presets */}
+                            <div className="grid grid-cols-4 gap-1">
+                              {[
+                                { label: '5 min', sec: 300 },
+                                { label: '10 min', sec: 600 },
+                                { label: '15 min', sec: 900 },
+                                { label: t.presetMax, sec: isochroneMaxSeconds },
+                              ].map((preset, pIdx) => {
+                                const clampedVal = Math.min(preset.sec, isochroneMaxSeconds);
+                                const isActivePreset =
+                                  pIdx === 3
+                                    ? effectiveIsochroneBudgetSeconds >= isochroneMaxSeconds
+                                    : preset.sec <= isochroneMaxSeconds && effectiveIsochroneBudgetSeconds === preset.sec;
+                                return (
+                                  <button
+                                    key={pIdx}
+                                    type="button"
+                                    disabled={pIdx < 3 && preset.sec > isochroneMaxSeconds}
+                                    onClick={() => {
+                                      haptic.selection();
+                                      setIsochroneBudgetSeconds(clampedVal);
+                                    }}
+                                    className={`py-1 px-1.5 rounded-lg text-[10px] font-bold transition cursor-pointer disabled:opacity-40 disabled:pointer-events-none ${
+                                      isActivePreset
+                                        ? 'bg-emerald-600 text-white shadow-xs'
+                                        : 'bg-white/90 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:border-emerald-400'
+                                    }`}
+                                  >
+                                    {preset.label}
+                                  </button>
+                                );
+                              })}
+                            </div>
+
+                            {/* Compact color tier legend */}
+                            <div className="flex items-center justify-between gap-1 pt-1 text-[9px] font-semibold text-slate-500 dark:text-slate-400">
+                              <span className="flex items-center gap-1">
+                                <span className="w-2 h-2 rounded-full bg-[#10B981]" />
+                                ≤5m
+                              </span>
+                              <span className="flex items-center gap-1">
+                                <span className="w-2 h-2 rounded-full bg-[#06B6D4]" />
+                                ≤10m
+                              </span>
+                              <span className="flex items-center gap-1">
+                                <span className="w-2 h-2 rounded-full bg-[#F59E0B]" />
+                                ≤15m
+                              </span>
+                              <span className="flex items-center gap-1">
+                                <span className="w-2 h-2 rounded-full bg-[#8B5CF6]" />
+                                &gt;15m
+                              </span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+
                   {routePlanningEnabled ? (
                     <div className="mt-4 pt-3 border-t border-slate-200 dark:border-slate-800 space-y-2">
                       <div className="grid grid-cols-3 gap-1.5">
@@ -3367,7 +3788,10 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                             className="flex flex-col items-center justify-center gap-1 py-2 px-1 rounded-xl bg-blue-600/10 hover:bg-blue-600/20 text-blue-600 dark:text-blue-400 border border-blue-500/20 text-[11px] font-semibold transition active:scale-95"
                           >
                             <PlusCircle className="w-3.5 h-3.5" />
-                            <span>{t.stopover}</span>
+                            <span>
+                              {t.stopover}
+                              {effectiveStopoverIds.includes(clickedStation.id) ? ' ✓' : ''}
+                            </span>
                           </button>
                         )}
 
@@ -3408,6 +3832,135 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                 </motion.div>
               )}
             </AnimatePresence>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Floating Isochrone Control HUD (visible when exploring map without open bottom sheets) */}
+      <AnimatePresence>
+        {showFloatingIsochroneHud && isochroneResult && isochroneOriginId && (
+          <motion.div
+            key="isochrone-floating-hud"
+            drag
+            dragConstraints={false}
+            dragElastic={0}
+            dragMomentum={false}
+            onDragStart={() => {
+              isInfoCardDraggingRef.current = true;
+              isDraggingRef.current = false;
+            }}
+            onDragEnd={() => {
+              isInfoCardDraggingRef.current = false;
+            }}
+            initial={{ opacity: 0, y: 12, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 12, scale: 0.96 }}
+            transition={{ type: 'spring', stiffness: 400, damping: 32 }}
+            style={{ touchAction: 'none' }}
+            onClick={(e) => e.stopPropagation()}
+            className="info-window-sheet absolute bottom-22 sm:bottom-24 md:bottom-4 right-3 sm:right-4 w-[calc(100%-1.5rem)] sm:w-88 max-w-sm z-40 bg-white/[0.97] dark:bg-slate-900/[0.97] border border-emerald-500/40 rounded-3xl shadow-2xl p-3.5 space-y-2.5 select-none cursor-grab active:cursor-grabbing"
+          >
+            <div className="flex items-center justify-center -mt-1 pb-0.5 pointer-events-none">
+              <div className="w-9 h-1 rounded-full bg-slate-300 dark:bg-slate-600" />
+            </div>
+
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <div className="p-1.5 rounded-xl bg-emerald-600 text-white shrink-0 shadow-xs">
+                  <Radar className="w-4 h-4" />
+                </div>
+                <div className="min-w-0">
+                  <span className="text-[10px] uppercase font-bold tracking-wider text-emerald-600 dark:text-emerald-400 block truncate">
+                    {t.exploreNearbyTitle}
+                  </span>
+                  <h4 className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                    {STATIONS[isochroneOriginId]?.name} • {reachableStationSet.size}/
+                    {Object.keys(isochroneResult.stationTimes).length} {t.reachableStationsCount}
+                  </h4>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  haptic.light();
+                  setIsochroneEnabled(false);
+                }}
+                onPointerDown={(e) => e.stopPropagation()}
+                className="p-1.5 rounded-full text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+                title={t.closeIsochrone}
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div
+              className="space-y-2 pt-1 border-t border-slate-100 dark:border-slate-800"
+              onPointerDown={(e) => e.stopPropagation()}
+              onTouchStart={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="text-slate-600 dark:text-slate-300 font-medium">
+                  {t.exploreNearbyToggle}
+                </span>
+                <span className="font-mono font-black text-emerald-600 dark:text-emerald-400">
+                  {formatSecondsVerbose(effectiveIsochroneBudgetSeconds)}
+                </span>
+              </div>
+
+              <input
+                type="range"
+                min={0}
+                max={isochroneMaxSeconds}
+                step={1}
+                value={effectiveIsochroneBudgetSeconds}
+                onChange={(e) => setIsochroneBudgetSeconds(Number(e.target.value))}
+                onPointerDown={(e) => e.stopPropagation()}
+                onMouseDown={(e) => e.stopPropagation()}
+                onTouchStart={(e) => e.stopPropagation()}
+                className="w-full h-2 rounded-lg accent-emerald-500 cursor-pointer"
+              />
+
+              <div className="flex items-center justify-between text-[9px] text-slate-400 font-mono -mt-1">
+                <span>0s</span>
+                <span>
+                  {t.maxJourneyTimeLabel}: {formatSecondsVerbose(isochroneMaxSeconds)}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-4 gap-1">
+                {[
+                  { label: '5 min', sec: 300 },
+                  { label: '10 min', sec: 600 },
+                  { label: '15 min', sec: 900 },
+                  { label: t.presetMax, sec: isochroneMaxSeconds },
+                ].map((preset, pIdx) => {
+                  const clampedVal = Math.min(preset.sec, isochroneMaxSeconds);
+                  const isActivePreset =
+                    pIdx === 3
+                      ? effectiveIsochroneBudgetSeconds >= isochroneMaxSeconds
+                      : preset.sec <= isochroneMaxSeconds && effectiveIsochroneBudgetSeconds === preset.sec;
+                  return (
+                    <button
+                      key={pIdx}
+                      type="button"
+                      disabled={pIdx < 3 && preset.sec > isochroneMaxSeconds}
+                      onClick={() => {
+                        haptic.selection();
+                        setIsochroneBudgetSeconds(clampedVal);
+                      }}
+                      className={`py-1 px-1.5 rounded-lg text-[10px] font-bold transition cursor-pointer disabled:opacity-40 disabled:pointer-events-none ${
+                        isActivePreset
+                          ? 'bg-emerald-600 text-white shadow-xs'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                      }`}
+                    >
+                      {preset.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>

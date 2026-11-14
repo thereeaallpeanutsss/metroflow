@@ -40,29 +40,49 @@ export function saveRecentRoute(entry: {
   originId: string;
   destinationId: string;
   stopoverId?: string;
+  stopoverIds?: string[];
   originName: string;
   destinationName: string;
   stopoverName?: string;
+  stopoverNames?: string[];
   durationMinutes?: number;
   transfersCount?: number;
   linesUsed?: LineId[];
 }): RecentRoute[] {
   try {
     const existing = getAllStoredRecentRoutes();
-    // Filter out duplicates (same origin, destination, and stopover)
-    const filtered = existing.filter(
-      (r) =>
-        !(
-          r.originId === entry.originId &&
-          r.destinationId === entry.destinationId &&
-          (r.stopoverId || undefined) === (entry.stopoverId || undefined)
-        )
-    );
+    const normalizedIds =
+      entry.stopoverIds && entry.stopoverIds.length > 0
+        ? entry.stopoverIds
+        : entry.stopoverId
+        ? [entry.stopoverId]
+        : [];
+    const normalizedNames =
+      entry.stopoverNames && entry.stopoverNames.length > 0
+        ? entry.stopoverNames
+        : entry.stopoverName
+        ? [entry.stopoverName]
+        : [];
+    const targetKey = normalizedIds.join('|');
+
+    // Filter out duplicates (same origin, destination, and ordered stopovers)
+    const filtered = existing.filter((r) => {
+      const rIds = r.stopoverIds && r.stopoverIds.length > 0 ? r.stopoverIds : r.stopoverId ? [r.stopoverId] : [];
+      return !(
+        r.originId === entry.originId &&
+        r.destinationId === entry.destinationId &&
+        rIds.join('|') === targetKey
+      );
+    });
 
     const newRecent: RecentRoute = {
       id: `recent-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
       timestamp: Date.now(),
       ...entry,
+      stopoverId: normalizedIds[0],
+      stopoverIds: normalizedIds.length > 0 ? normalizedIds : undefined,
+      stopoverName: normalizedNames.length > 0 ? normalizedNames.join(' → ') : undefined,
+      stopoverNames: normalizedNames.length > 0 ? normalizedNames : undefined,
     };
 
     const updated = [newRecent, ...filtered].slice(0, 10);

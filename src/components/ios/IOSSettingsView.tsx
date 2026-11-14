@@ -586,9 +586,9 @@ export const IOSSettingsView: React.FC<IOSSettingsViewProps> = ({
                       <ArrowRight className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                       <span>{journey.destinationName}</span>
                     </div>
-                    {journey.stopoverName && (
-                      <span className="text-[10px] text-amber-500 font-medium block">
-                        via {journey.stopoverName}
+                    {(journey.stopoverNames?.length || journey.stopoverName) && (
+                      <span className="text-[10px] text-amber-500 font-medium block truncate">
+                        via {journey.stopoverNames?.join(' ➔ ') || journey.stopoverName}
                       </span>
                     )}
                   </button>

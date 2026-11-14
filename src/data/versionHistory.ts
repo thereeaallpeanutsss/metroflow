@@ -19,14 +19,39 @@ export interface VersionEntry {
  * y = Addition of minor features and general enhancements (incremented upwards)
  * z = Small bug fixes, performance improvements, and minor adjustments (incremented upwards)
  */
-export const CURRENT_VERSION = '0.6.0';
+export const CURRENT_VERSION = '0.7.0';
 
 export const VERSION_HISTORY: VersionEntry[] = [
+  {
+    version: '0.7.0',
+    date: '14.11.2026',
+    type: 'minor',
+    isLatest: true,
+    title: 'Multi-Stopover Itinerary & Isochrone Reachability Explorer',
+    titleDe: 'Multi-Zwischenstopp-Planer & Erreichbarkeits-Modus (Isochrone)',
+    summary:
+      'Added unlimited drag-reorderable stopover waypoints for sightseeing tours and a new interactive Isochrone reachability mode on the network map with a 0s-to-max slider.',
+    summaryDe:
+      'Erweiterung des Routenplaners um beliebig viele per Drag & Drop sortierbare Zwischenstopps (inkl. Rundtouren) sowie ein neuer interaktiver Erreichbarkeits-Radius (Isochrone) direkt auf der Netzkarte.',
+    changes: [
+      'Multi-Stopover Itinerary: Add 2 or more intermediate waypoints to any route in Classic, Minecraft, and iOS Trip Planners.',
+      'Drag-to-reorder handles plus quick up/down controls let you rearrange sightseeing stops effortlessly, including round-trip tours starting and ending at the same station.',
+      'Isochrone Mode ("Explore Nearby"): Tap any station on the network map and toggle reachability to see all reachable stations and track segments.',
+      'Interactive time budget slider stretching smoothly from 0 seconds up to the longest possible journey time from the selected station, plus quick 5 / 10 / 15 min / Max presets.',
+      'Color-coded map routes and station halos grouped by travel time tier, with crisp zero-lag rendering.',
+    ],
+    changesDe: [
+      'Multi-Zwischenstopp-Reiseplan: Füge im Klassik-, Minecraft- und iOS-Routenplaner beliebig viele (2+) Zwischenstopps hinzu.',
+      'Ziehe Zwischenhalte per Drag & Drop (oder über Pfeil-Buttons) in die gewünschte Reihenfolge – inkl. Sightseeing-Rundtouren mit identischem Start- und Zielbahnhof.',
+      'Erreichbarkeits-Modus (Isochrone): Tippe auf der Netzkarte eine beliebige Station an und schalte den Erreichbarkeits-Radius ein.',
+      'Interaktiver Zeit-Schieberegler von 0 Sekunden bis zur längsten möglichen Fahrzeit ab dieser Station sowie Schnellauswahl für 5, 10, 15 Min. und Max.',
+      'Farbcodierte Hervorhebung aller erreichbaren Strecken und Stationen je nach benötigter Fahrzeit bei voller Karten-Performance.',
+    ],
+  },
   {
     version: '0.6.0',
     date: '14.11.2026',
     type: 'minor',
-    isLatest: true,
     title: 'Active Journey Tracker (Ride Mode) & Admin Travel Time Measurement',
     titleDe: 'Aktive Fahrtbegleitung (Rider Mode) & Admin-Fahrzeitmessung',
     summary:
