@@ -159,3 +159,54 @@ export interface RecentRoute {
 }
 
 export type RoutePreference = 'fastest' | 'fewest-transfers' | 'prioritize-metro' | 'prioritize-ic' | 'accessible';
+
+export interface SegmentTravelTime {
+  id: string;
+  lineId: LineId;
+  fromStationId: string;
+  toStationId: string;
+  durationSeconds: number;
+  durationMinutes: number;
+  updatedAt: number;
+}
+
+export type TravelTimeOverridesMap = Record<string, SegmentTravelTime>;
+
+export interface RideStep {
+  stationId: string;
+  lineId: LineId;
+  legIndex: number;
+  isTransferArrival?: boolean;
+  transferToLineId?: LineId;
+  isTransferBeforeNextStop?: boolean;
+  isOperationalTransfer?: boolean;
+  segmentSecondsToNext: number;
+}
+
+export interface MeasuredSegmentLog {
+  id: string;
+  lineId: LineId;
+  fromStationId: string;
+  toStationId: string;
+  oldDurationSeconds: number;
+  oldDurationMinutes: number;
+  newDurationSeconds: number;
+  newDurationMinutes: number;
+}
+
+export type LoggingStatus = 'idle' | 'running' | 'completed';
+
+export interface ActiveRideState {
+  id: string;
+  route: RouteOption;
+  steps: RideStep[];
+  currentStepIndex: number;
+  isMinimized: boolean;
+  startedAt: number;
+  loggingEnabled: boolean;
+  loggingStatus: LoggingStatus;
+  segmentTimerStartedAt: number | null;
+  measuredSegments: MeasuredSegmentLog[];
+  showComparisonModal: boolean;
+}
+

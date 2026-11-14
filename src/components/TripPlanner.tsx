@@ -38,7 +38,10 @@ import {
   ArrowRight,
   Navigation,
   Star,
+  Play,
+  Timer,
 } from 'lucide-react';
+import { isCompleteSingleLineRoute } from '../utils/routeFinder';
 
 interface TripPlannerProps {
   language: Language;
@@ -68,6 +71,10 @@ interface TripPlannerProps {
   onDeleteRecentRoute: (id: string) => void;
   onClearRecentRoutes: () => void;
   onRestoreLastEntry: () => void;
+  isAdmin?: boolean;
+  activeRideId?: string | null;
+  onStartRide?: (route: RouteOption) => void;
+  onOpenActiveRide?: () => void;
 }
 
 export const TripPlanner: React.FC<TripPlannerProps> = ({
@@ -98,6 +105,10 @@ export const TripPlanner: React.FC<TripPlannerProps> = ({
   onDeleteRecentRoute,
   onClearRecentRoutes,
   onRestoreLastEntry,
+  isAdmin = false,
+  activeRideId = null,
+  onStartRide,
+  onOpenActiveRide,
 }) => {
   const t = translations[language];
 
@@ -1198,25 +1209,58 @@ export const TripPlanner: React.FC<TripPlannerProps> = ({
                     </div>
                   </div>
 
-                  {/* Line Badges in Route */}
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    {route.legs.map((leg, lIdx) => (
-                      <React.Fragment key={lIdx}>
-                        <div
-                          className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-bold text-white shadow-xs"
-                          style={{ backgroundColor: METRO_LINES[leg.lineId]?.color }}
-                        >
-                          {leg.lineId.startsWith('IC') && <Train className="w-3 h-3" />}
-                          <span>{METRO_LINES[leg.lineId]?.badge}</span>
-                          <span className="text-[10px] font-normal opacity-90">
-                            {METRO_LINES[leg.lineId]?.shortName}
-                          </span>
-                        </div>
-                        {lIdx < route.legs.length - 1 && (
-                          <span className="text-slate-400 dark:text-slate-500 text-xs font-bold">➔</span>
-                        )}
-                      </React.Fragment>
-                    ))}
+                  {/* Line Badges in Route + Start Journey Button */}
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      {route.legs.map((leg, lIdx) => (
+                        <React.Fragment key={lIdx}>
+                          <div
+                            className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-bold text-white shadow-xs"
+                            style={{ backgroundColor: METRO_LINES[leg.lineId]?.color }}
+                          >
+                            {leg.lineId.startsWith('IC') && <Train className="w-3 h-3" />}
+                            <span>{METRO_LINES[leg.lineId]?.badge}</span>
+                            <span className="text-[10px] font-normal opacity-90">
+                              {METRO_LINES[leg.lineId]?.shortName}
+                            </span>
+                          </div>
+                          {lIdx < route.legs.length - 1 && (
+                            <span className="text-slate-400 dark:text-slate-500 text-xs font-bold">➔</span>
+                          )}
+                        </React.Fragment>
+                      ))}
+
+                      {isAdmin && isCompleteSingleLineRoute(route).eligible && (
+                        <span className="px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-700 text-[10px] font-bold flex items-center gap-1">
+                          <Timer className="w-3 h-3" />
+                          <span>{t.completeLineBadge}</span>
+                        </span>
+                      )}
+                    </div>
+
+                    {onStartRide && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          haptic.medium();
+                          if (activeRideId === route.id && onOpenActiveRide) {
+                            onOpenActiveRide();
+                          } else {
+                            onSelectRoute(route);
+                            onStartRide(route);
+                          }
+                        }}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-extrabold flex items-center gap-1.5 shadow-md transition active:scale-95 shrink-0 cursor-pointer ${
+                          activeRideId === route.id
+                            ? 'bg-emerald-700 hover:bg-emerald-600 text-white shadow-emerald-600/25'
+                            : 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-emerald-600/25'
+                        }`}
+                      >
+                        <Play className="w-3.5 h-3.5 fill-white" />
+                        <span>{activeRideId === route.id ? t.activeRide : t.startJourney}</span>
+                      </button>
+                    )}
                   </div>
                 </div>
               );
@@ -1251,7 +1295,7 @@ export const TripPlanner: React.FC<TripPlannerProps> = ({
                 {t.totalDuration}: ca. {activeRoute.totalDurationMinutes} {t.min}
               </p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap justify-end">
               {/* Save Journey Button */}
               <button
                 onClick={() => {
@@ -1279,6 +1323,23 @@ export const TripPlanner: React.FC<TripPlannerProps> = ({
               >
                 {copiedLink ? <Check className="w-4 h-4 text-emerald-500" /> : <Share2 className="w-4 h-4" />}
               </button>
+
+              {onStartRide && (
+                <button
+                  onClick={() => {
+                    haptic.medium();
+                    if (activeRideId === activeRoute.id && onOpenActiveRide) {
+                      onOpenActiveRide();
+                    } else {
+                      onStartRide(activeRoute);
+                    }
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition shadow-md shadow-emerald-600/20 cursor-pointer"
+                >
+                  <Play className="w-3.5 h-3.5 fill-white" />
+                  <span>{activeRideId === activeRoute.id ? t.activeRide : t.startJourney}</span>
+                </button>
+              )}
 
               <button
                 onClick={() => {

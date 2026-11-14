@@ -239,6 +239,46 @@ export interface Translations {
   noDisruptionsForLine: string;
   mapHighlightGlow: string;
   mapHighlightGlowDesc: string;
+  startJourney: string;
+  activeRide: string;
+  endRide: string;
+  rideModeTitle: string;
+  nextStop: string;
+  prevStop: string;
+  remainingStops: string;
+  remainingTime: string;
+  transferAlertBefore: string;
+  transferAlertNow: string;
+  destinationReachedRide: string;
+  progressLabel: string;
+  currentSegment: string;
+  travelTimeLogging: string;
+  travelTimeLoggingDesc: string;
+  loggingSingleCompleteLineOnly: string;
+  loggingMultiLineDisabled: string;
+  loggingPartialLineDisabled: string;
+  startTimerAtFirstStop: string;
+  stationPassedBtn: string;
+  finalStationReachedBtn: string;
+  timerRunningLabel: string;
+  timerStoppedLabel: string;
+  finishLoggingUpdateTimes: string;
+  comparisonTitle: string;
+  comparisonQuestion: string;
+  oldTime: string;
+  newTime: string;
+  differenceLabel: string;
+  oldTotal: string;
+  newTotal: string;
+  confirmUpdateTimes: string;
+  travelTimesUpdatedSuccess: string;
+  restartLogging: string;
+  measuredSegmentsTitle: string;
+  completeLineBadge: string;
+  confirmEndRideTitle: string;
+  confirmEndRideMessage: string;
+  confirmEndRideLoggingWarning: string;
+  confirmEndRideBtn: string;
 }
 
 export const translations: Record<Language, Translations> = {
@@ -481,6 +521,46 @@ export const translations: Record<Language, Translations> = {
     noDisruptionsForLine: 'Keine Störungen auf dieser Linie gemeldet',
     mapHighlightGlow: 'Leuchteffekt auf Netzkarte (Glow)',
     mapHighlightGlowDesc: 'Aktiviert einen weichen Leuchteffekt um hervorgehobene Linien und Stationen. Standardmäßig deaktiviert für maximale Framerate beim Zoomen und Verschieben.',
+    startJourney: 'Fahrt starten',
+    activeRide: 'Active Ride',
+    endRide: 'Fahrt beenden',
+    rideModeTitle: 'Aktive Fahrtbegleitung',
+    nextStop: 'Nächster Halt',
+    prevStop: 'Vorheriger Halt',
+    remainingStops: 'Verbleibende Stationen',
+    remainingTime: 'Restfahrzeit',
+    transferAlertBefore: 'Gleich umsteigen!',
+    transferAlertNow: 'Jetzt hier umsteigen!',
+    destinationReachedRide: 'Endziel erreicht – gute Weiterreise!',
+    progressLabel: 'Fortschritt',
+    currentSegment: 'Aktueller Streckenabschnitt',
+    travelTimeLogging: 'Fahrzeitmessung (Admin)',
+    travelTimeLoggingDesc: 'Stoppt exakte Fahrzeiten zwischen Stationen und aktualisiert den globalen Fahrplan für alle Nutzer.',
+    loggingSingleCompleteLineOnly: 'Nur auf einer einzelnen, vollständigen Linie von Start- zu Endstation verfügbar.',
+    loggingMultiLineDisabled: 'Nicht verfügbar: Diese Route beinhaltet einen Linienwechsel oder Zwischenstopp. Bitte wähle genau eine Linie ohne Umstieg.',
+    loggingPartialLineDisabled: 'Nicht verfügbar: Für eine Messung muss die komplette Linie von Start- bis Endstation ausgewählt sein.',
+    startTimerAtFirstStop: 'Fahrt & Timer starten an',
+    stationPassedBtn: 'Station passiert:',
+    finalStationReachedBtn: 'Endstation erreicht:',
+    timerRunningLabel: 'Stoppuhr läuft',
+    timerStoppedLabel: 'Stoppuhr gestoppt • Alle Abschnitte erfasst',
+    finishLoggingUpdateTimes: 'Messung abschließen & Fahrzeiten aktualisieren',
+    comparisonTitle: 'Vergleich: Alte vs. neue Fahrzeiten',
+    comparisonQuestion: 'Möchtest du die aktuellen Fahrzeiten für diese Linie jetzt wirklich mit den neu gemessenen Zeiten überschreiben? Alle Nutzer erhalten ab sofort diese neuen Fahrzeiten.',
+    oldTime: 'Alt',
+    newTime: 'Neu',
+    differenceLabel: 'Diff.',
+    oldTotal: 'Bisherige Gesamtfahrzeit',
+    newTotal: 'Neue Gesamtfahrzeit',
+    confirmUpdateTimes: 'Ja, Fahrzeiten jetzt aktualisieren',
+    travelTimesUpdatedSuccess: 'Neue Fahrzeiten wurden gespeichert und sind ab sofort für alle Nutzer aktiv!',
+    restartLogging: 'Messung neu starten',
+    measuredSegmentsTitle: 'Erfasste Abschnitte',
+    completeLineBadge: 'Komplette Linie',
+    confirmEndRideTitle: 'Fahrt wirklich beenden?',
+    confirmEndRideMessage: 'Möchtest du die aktive Fahrtbegleitung wirklich beenden? Danach ist sie für diese Fahrt nicht mehr verfügbar.',
+    confirmEndRideLoggingWarning: 'Hinweis: Deine noch nicht gespeicherten Fahrzeitmessungen aus dieser Fahrt gehen dabei verloren.',
+    confirmEndRideBtn: 'Ja, Fahrt beenden',
   },
   en: {
     appName: 'MetroFlow',
@@ -721,6 +801,46 @@ export const translations: Record<Language, Translations> = {
     noDisruptionsForLine: 'No disruptions reported on this line',
     mapHighlightGlow: 'Map Highlight Glow Effect',
     mapHighlightGlowDesc: 'Adds a soft glow effect around highlighted lines and stations. Disabled by default for maximum pan & zoom performance.',
+    startJourney: 'Start Journey',
+    activeRide: 'Active Ride',
+    endRide: 'End Ride',
+    rideModeTitle: 'Active Journey Tracker',
+    nextStop: 'Next Stop',
+    prevStop: 'Previous Stop',
+    remainingStops: 'Remaining Stops',
+    remainingTime: 'Time Remaining',
+    transferAlertBefore: 'Prepare to transfer!',
+    transferAlertNow: 'Transfer here now!',
+    destinationReachedRide: 'Destination reached — have a great day!',
+    progressLabel: 'Progress',
+    currentSegment: 'Current Track Segment',
+    travelTimeLogging: 'Travel Time Logging (Admin)',
+    travelTimeLoggingDesc: 'Measures exact station-to-station times and updates the global timetable for all users.',
+    loggingSingleCompleteLineOnly: 'Only available on a single complete line from terminal to terminal.',
+    loggingMultiLineDisabled: 'Unavailable: Planned route involves line transfers or stopovers. Select a single line with zero transfers.',
+    loggingPartialLineDisabled: 'Unavailable: Admin timing requires selecting the complete line from start terminal to end terminal.',
+    startTimerAtFirstStop: 'Start Journey (Start Timer at)',
+    stationPassedBtn: 'Station Passed:',
+    finalStationReachedBtn: 'Final Station Reached:',
+    timerRunningLabel: 'Timer Running',
+    timerStoppedLabel: 'Timer Stopped • Full Line Measured',
+    finishLoggingUpdateTimes: 'Finish Logging & Update Travel Times',
+    comparisonTitle: 'Old vs. Newly Measured Travel Times',
+    comparisonQuestion: 'Do you want to overwrite the current travel times for this line with the newly measured values? All users will immediately use these updated ride times.',
+    oldTime: 'Old',
+    newTime: 'New',
+    differenceLabel: 'Diff',
+    oldTotal: 'Previous Total Time',
+    newTotal: 'New Total Time',
+    confirmUpdateTimes: 'Yes, Update Travel Times',
+    travelTimesUpdatedSuccess: 'Measured travel times saved and live for all users!',
+    restartLogging: 'Restart Measurement',
+    measuredSegmentsTitle: 'Measured Segments',
+    completeLineBadge: 'Complete Line',
+    confirmEndRideTitle: 'End Active Ride?',
+    confirmEndRideMessage: 'Do you really want to end this ride? It will no longer be accessible once ended.',
+    confirmEndRideLoggingWarning: 'Note: Any unsaved travel time measurements from this session will be discarded.',
+    confirmEndRideBtn: 'Yes, End Ride',
   },
 };
 

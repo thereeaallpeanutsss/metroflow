@@ -67,6 +67,29 @@
         "toStationId",
         "timestamp"
       ]
+    },
+    "SegmentTravelTime": {
+      "title": "SegmentTravelTime",
+      "description": "Measured segment travel time between two adjacent stations on a line, recorded by administrators and used globally for all users",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 160, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "lineId": { "type": "string", "maxLength": 64 },
+        "fromStationId": { "type": "string", "maxLength": 64 },
+        "toStationId": { "type": "string", "maxLength": 64 },
+        "durationSeconds": { "type": "number" },
+        "durationMinutes": { "type": "number" },
+        "updatedAt": { "type": "number" }
+      },
+      "required": [
+        "id",
+        "lineId",
+        "fromStationId",
+        "toStationId",
+        "durationSeconds",
+        "durationMinutes",
+        "updatedAt"
+      ]
     }
   },
   "firestore": {
@@ -77,6 +100,10 @@
     "/disruptions/{disruptionId}": {
       "schema": "Disruption",
       "description": "Real-time crowdsourced disruption reports synchronized across all devices"
+    },
+    "/travelTimes/{segmentId}": {
+      "schema": "SegmentTravelTime",
+      "description": "Global segment travel times measured by administrators for route duration calculation"
     }
   }
 }

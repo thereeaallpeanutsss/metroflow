@@ -35,7 +35,10 @@ import {
   RefreshCw,
   ExternalLink,
   CheckCircle2,
+  Play,
+  Timer,
 } from 'lucide-react';
+import { isCompleteSingleLineRoute } from '../../utils/routeFinder';
 
 interface IOSTripPlannerProps {
   language: Language;
@@ -65,6 +68,10 @@ interface IOSTripPlannerProps {
   onDeleteRecentRoute: (id: string) => void;
   onClearRecentRoutes: () => void;
   onRestoreLastEntry: () => void;
+  isAdmin?: boolean;
+  activeRideId?: string | null;
+  onStartRide?: (route: RouteOption) => void;
+  onOpenActiveRide?: () => void;
 }
 
 export const IOSTripPlanner: React.FC<IOSTripPlannerProps> = ({
@@ -92,6 +99,10 @@ export const IOSTripPlanner: React.FC<IOSTripPlannerProps> = ({
   onSaveJourney,
   onSelectRecentRoute,
   onDeleteRecentRoute,
+  isAdmin = false,
+  activeRideId = null,
+  onStartRide,
+  onOpenActiveRide,
 }) => {
   const t = translations[language];
 
@@ -506,8 +517,8 @@ export const IOSTripPlanner: React.FC<IOSTripPlannerProps> = ({
                       }`}
                     >
                       {/* Route Summary Row */}
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2.5">
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <span className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight">
                             {route.totalDurationMinutes} {t.min}
                           </span>
@@ -516,6 +527,12 @@ export const IOSTripPlanner: React.FC<IOSTripPlannerProps> = ({
                               ? t.directConnection
                               : `${route.transfersCount} ${t.transfers}`}
                           </span>
+                          {isAdmin && isCompleteSingleLineRoute(route).eligible && (
+                            <span className="px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-700 text-[10px] font-bold flex items-center gap-1">
+                              <Timer className="w-3 h-3" />
+                              <span>{t.completeLineBadge}</span>
+                            </span>
+                          )}
                         </div>
 
                         {/* Line Badges Chain */}
@@ -535,6 +552,29 @@ export const IOSTripPlanner: React.FC<IOSTripPlannerProps> = ({
                           ))}
                         </div>
                       </div>
+
+                      {/* Quick Start Journey button directly on unselected routes too */}
+                      {!isSelected && onStartRide && (
+                        <div className="flex justify-end pt-1">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              haptic.medium();
+                              if (activeRideId === route.id && onOpenActiveRide) {
+                                onOpenActiveRide();
+                              } else {
+                                onSelectRoute(route);
+                                onStartRide(route);
+                              }
+                            }}
+                            className="py-1.5 px-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm shadow-emerald-600/20 transition active:scale-95 cursor-pointer"
+                          >
+                            <Play className="w-3.5 h-3.5 fill-white" />
+                            <span>{activeRideId === route.id ? t.activeRide : t.startJourney}</span>
+                          </button>
+                        </div>
+                      )}
 
                       {/* Disruption Alert Banner & Impassable Route Warning if on route */}
                       {route.affectedDisruptions && route.affectedDisruptions.length > 0 && (() => {
@@ -688,7 +728,26 @@ export const IOSTripPlanner: React.FC<IOSTripPlannerProps> = ({
 
                       {/* Selected Route Action Buttons */}
                       {isSelected && (
-                        <div className="flex items-center gap-2 pt-1 border-t border-slate-100 dark:border-zinc-800">
+                        <div className="flex items-center gap-2 pt-1 border-t border-slate-100 dark:border-zinc-800 flex-wrap">
+                          {onStartRide && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                haptic.medium();
+                                if (activeRideId === route.id && onOpenActiveRide) {
+                                  onOpenActiveRide();
+                                } else {
+                                  onStartRide(route);
+                                }
+                              }}
+                              className="flex-1 py-2 px-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm shadow-emerald-600/20 transition active:scale-95 cursor-pointer"
+                            >
+                              <Play className="w-3.5 h-3.5 fill-white" />
+                              <span>{activeRideId === route.id ? t.activeRide : t.startJourney}</span>
+                            </button>
+                          )}
+
                           <button
                             type="button"
                             onClick={(e) => {

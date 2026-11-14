@@ -19,14 +19,39 @@ export interface VersionEntry {
  * y = Addition of minor features and general enhancements (incremented upwards)
  * z = Small bug fixes, performance improvements, and minor adjustments (incremented upwards)
  */
-export const CURRENT_VERSION = '0.5.0';
+export const CURRENT_VERSION = '0.6.0';
 
 export const VERSION_HISTORY: VersionEntry[] = [
+  {
+    version: '0.6.0',
+    date: '14.11.2026',
+    type: 'minor',
+    isLatest: true,
+    title: 'Active Journey Tracker (Ride Mode) & Admin Travel Time Measurement',
+    titleDe: 'Aktive Fahrtbegleitung (Rider Mode) & Admin-Fahrzeitmessung',
+    summary:
+      'Added interactive stop-by-stop Active Journey Tracker ("Start Journey") with live map segment highlighting and a minimized "Active Ride" header shortcut, plus Admin-only full-line travel time logging.',
+    summaryDe:
+      'Neuer interaktiver Fahrtbegleiter („Fahrt starten“) mit Live-Markierung auf der Netzkarte und „Active Ride“-Schnellzugriff in der Kopfzeile sowie Admin-Funktion zur genauen Fahrzeitmessung.',
+    changes: [
+      'Added "Start Journey" button directly on calculated routes in both Classic/Minecraft and iOS Trip Planners.',
+      'Interactive Ride Mode guides passengers stop-by-stop with a progress bar, remaining stops/minutes countdown, and pre-transfer alerts one stop ahead.',
+      'Highlights the active track segment plus current & next station markers directly on the transit map.',
+      'Closing Ride Mode keeps the journey active with a quick "Active Ride" button in the top bar next to alerts & clock; pressing "End Ride" permanently ends it.',
+      'Admin Mode: Added Travel Time Logging inside Ride Mode (strictly gated to single, complete lines from terminal to terminal) with stopwatch, station-passed splits, old-vs-new comparison dialog, and global timetable updates.',
+    ],
+    changesDe: [
+      'Neuer Button „Fahrt starten“ direkt neben berechneten Routen im Routenplaner (Klassisch, Minecraft & iOS).',
+      'Interaktiver Rider Mode mit Fortschrittsbalken, Restminuten-/Stations-Countdown, Live-Umsteigewarnung vor dem Umstieg und Schritt-für-Schritt-Zeitachse.',
+      'Live-Hervorhebung des aktuellen Streckenabschnitts sowie der aktuellen & nächsten Station direkt auf der Netzkarte.',
+      'Schließen des Rider Mode belässt die Fahrt aktiv und zeigt „Active Ride“ oben neben Status & Uhrzeit; erst „Fahrt beenden“ schließt die Fahrt endgültig.',
+      'Admin-Modus: Fahrzeitmessung im Rider Mode (ausschließlich für eine einzelne, komplette Linie von Start- bis Endstation) mit Stoppuhr, Vergleichsansicht Alt vs. Neu und globaler Fahrplan-Aktualisierung.',
+    ],
+  },
   {
     version: '0.5.0',
     date: '14.11.2026',
     type: 'minor',
-    isLatest: true,
     title: 'Map Highlight Lag Elimination & Glow Toggle Setting',
     titleDe: 'Netzkarte: Maximale Framerate & Leuchteffekt-Option',
     summary:

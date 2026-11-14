@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { LineId, Station, Disruption, LineNetworkType } from '../../types/metro';
+import { LineId, Station, Disruption, LineNetworkType, TravelTimeOverridesMap } from '../../types/metro';
 import { METRO_LINES, STATIONS } from '../../data/metroData';
 import { Language, translations } from '../../utils/i18n';
 import { ReportDisruptionModal } from '../ReportDisruptionModal';
 import { ConfirmDeleteDisruptionModal } from '../ConfirmDeleteDisruptionModal';
 import { NewDisruptionPayload } from '../../services/disruptionsService';
+import { getLineTotalTravelTime } from '../../utils/routeFinder';
 import { haptic } from '../../utils/haptics';
 import {
   Search,
@@ -40,6 +41,7 @@ interface IOSLineDirectoryProps {
   isAdmin?: boolean;
   onEditDisruption?: (disruption: Disruption) => void;
   onDeleteDisruption?: (id: string) => Promise<void>;
+  travelTimeOverrides?: TravelTimeOverridesMap;
 }
 
 export const IOSLineDirectory: React.FC<IOSLineDirectoryProps> = ({
@@ -56,6 +58,7 @@ export const IOSLineDirectory: React.FC<IOSLineDirectoryProps> = ({
   isAdmin = false,
   onEditDisruption,
   onDeleteDisruption,
+  travelTimeOverrides,
 }) => {
   const t = translations[language];
 
@@ -150,6 +153,7 @@ export const IOSLineDirectory: React.FC<IOSLineDirectoryProps> = ({
         <div className="rounded-3xl bg-white dark:bg-zinc-900/90 border border-slate-200/90 dark:border-zinc-800 shadow-sm overflow-hidden divide-y divide-slate-100 dark:divide-zinc-800/80">
           {filteredMetro.map((line) => {
             const hasDisruption = disruptions.some((d) => d.lineId === line.id && d.isActive);
+            const lineTiming = getLineTotalTravelTime(line.id, travelTimeOverrides);
             return (
               <button
                 key={line.id}
@@ -177,9 +181,20 @@ export const IOSLineDirectory: React.FC<IOSLineDirectoryProps> = ({
                 </div>
 
                 <div className="flex items-center gap-2 shrink-0 ml-2">
+                  <span
+                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                      lineTiming.hasMeasuredSegments
+                        ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+                        : 'bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-slate-300'
+                    }`}
+                  >
+                    ~{lineTiming.totalMinutes} {t.min}
+                  </span>
                   {line.frequencyMinutes && (
                     <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 hidden sm:inline">
-                      Alle {line.frequencyMinutes} Min.
+                      {language === 'de'
+                        ? `Alle ${line.frequencyMinutes} Min.`
+                        : `Every ${line.frequencyMinutes} min`}
                     </span>
                   )}
                   {hasDisruption ? (
@@ -207,6 +222,7 @@ export const IOSLineDirectory: React.FC<IOSLineDirectoryProps> = ({
         <div className="rounded-3xl bg-white dark:bg-zinc-900/90 border border-slate-200/90 dark:border-zinc-800 shadow-sm overflow-hidden divide-y divide-slate-100 dark:divide-zinc-800/80">
           {filteredIC.map((line) => {
             const hasDisruption = disruptions.some((d) => d.lineId === line.id && d.isActive);
+            const lineTiming = getLineTotalTravelTime(line.id, travelTimeOverrides);
             return (
               <button
                 key={line.id}
@@ -234,6 +250,15 @@ export const IOSLineDirectory: React.FC<IOSLineDirectoryProps> = ({
                 </div>
 
                 <div className="flex items-center gap-2 shrink-0 ml-2">
+                  <span
+                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                      lineTiming.hasMeasuredSegments
+                        ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+                        : 'bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-slate-300'
+                    }`}
+                  >
+                    ~{lineTiming.totalMinutes} {t.min}
+                  </span>
                   {hasDisruption ? (
                     <span className="w-2.5 h-2.5 rounded-full bg-amber-500 ring-2 ring-amber-500/30" />
                   ) : (
@@ -361,70 +386,120 @@ export const IOSLineDirectory: React.FC<IOSLineDirectoryProps> = ({
                 </button>
               </div>
 
-              {/* Station List along this Line */}
-              <div className="flex-1 overflow-y-auto space-y-1.5 pr-1 max-h-[50vh]">
-                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block pb-1">
-                  {selectedLine.stations.length} Stationen auf dieser Linie
-                </span>
-                {selectedLine.stations.map((stId, sIdx) => {
-                  const station = STATIONS[stId];
-                  if (!station) return null;
-                  return (
-                    <div
-                      key={stId}
-                      className="p-2.5 rounded-2xl bg-slate-50 dark:bg-zinc-800/60 border border-slate-100 dark:border-zinc-800 flex items-center justify-between"
-                    >
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <span className="w-5 h-5 rounded-full bg-slate-200 dark:bg-zinc-700 text-[10px] font-mono text-slate-600 dark:text-slate-300 flex items-center justify-center shrink-0">
-                          {sIdx + 1}
-                        </span>
-                        <div className="min-w-0">
-                          <span className="text-xs font-bold text-slate-900 dark:text-white truncate block">
-                            {station.name}
+              {/* Station List & Dynamic Travel Time Summary along this Line */}
+              {(() => {
+                const selectedTiming = getLineTotalTravelTime(selectedLine.id, travelTimeOverrides);
+                return (
+                  <>
+                    <div className="p-3 rounded-2xl bg-slate-50 dark:bg-zinc-800/70 border border-slate-200/70 dark:border-zinc-700/60 flex items-center justify-between gap-2 flex-wrap">
+                      <div className="flex items-center gap-2">
+                        <Clock className="w-4 h-4 text-blue-500 shrink-0" />
+                        <div>
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block leading-none">
+                            {t.totalDuration}
                           </span>
-                          <div className="flex items-center gap-1 flex-wrap mt-0.5">
-                            {station.lines
-                              .filter((l) => l !== selectedLine.id)
-                              .map((otherLineId) => (
-                                <span
-                                  key={otherLineId}
-                                  className="px-1.5 py-0.2 rounded text-[9px] font-bold text-white"
-                                  style={{ backgroundColor: METRO_LINES[otherLineId]?.color }}
-                                >
-                                  {METRO_LINES[otherLineId]?.badge}
-                                </span>
-                              ))}
-                          </div>
+                          <span className="text-sm font-extrabold text-slate-900 dark:text-white">
+                            ~{selectedTiming.totalMinutes} {t.min}
+                          </span>
                         </div>
                       </div>
-
-                      {/* Quick Route Actions */}
-                      <div className="flex items-center gap-1 shrink-0 ml-2">
-                        <button
-                          onClick={() => {
-                            haptic.medium();
-                            onSetOrigin(station.id);
-                            setSelectedLineId(null);
-                          }}
-                          className="px-2 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 text-[10px] font-bold hover:bg-emerald-100 transition"
-                        >
-                          Start
-                        </button>
-                        <button
-                          onClick={() => {
-                            haptic.medium();
-                            onSetDestination(station.id);
-                            setSelectedLineId(null);
-                          }}
-                          className="px-2 py-1 rounded-lg bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-400 text-[10px] font-bold hover:bg-rose-100 transition"
-                        >
-                          Ziel
-                        </button>
+                      <div className="flex items-center gap-2">
+                        {selectedTiming.hasMeasuredSegments && (
+                          <span className="px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 text-[10px] font-bold">
+                            {language === 'de' ? 'Gemessene Zeiten aktiv' : 'Measured times'}
+                          </span>
+                        )}
+                        {selectedLine.frequencyMinutes && (
+                          <span className="px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 text-[10px] font-bold">
+                            {language === 'de'
+                              ? `Alle ${selectedLine.frequencyMinutes} Min.`
+                              : `Every ${selectedLine.frequencyMinutes} min`}
+                          </span>
+                        )}
                       </div>
                     </div>
-                  );
-                })}
-              </div>
+
+                    <div className="flex-1 overflow-y-auto space-y-1.5 pr-1 max-h-[45vh]">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block pb-1">
+                        {selectedLine.stations.length} {t.stationsCount}
+                      </span>
+                      {selectedLine.stations.map((stId, sIdx) => {
+                        const station = STATIONS[stId];
+                        if (!station) return null;
+                        const nextSeg = selectedTiming.segments[sIdx];
+                        return (
+                          <div
+                            key={stId}
+                            className="p-2.5 rounded-2xl bg-slate-50 dark:bg-zinc-800/60 border border-slate-100 dark:border-zinc-800 flex items-center justify-between"
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <span className="w-5 h-5 rounded-full bg-slate-200 dark:bg-zinc-700 text-[10px] font-mono text-slate-600 dark:text-slate-300 flex items-center justify-center shrink-0">
+                                {sIdx + 1}
+                              </span>
+                              <div className="min-w-0">
+                                <span className="text-xs font-bold text-slate-900 dark:text-white truncate block">
+                                  {station.name}
+                                </span>
+                                <div className="flex items-center gap-1 flex-wrap mt-0.5">
+                                  {station.lines
+                                    .filter((l) => l !== selectedLine.id)
+                                    .map((otherLineId) => (
+                                      <span
+                                        key={otherLineId}
+                                        className="px-1.5 py-0.2 rounded text-[9px] font-bold text-white"
+                                        style={{ backgroundColor: METRO_LINES[otherLineId]?.color }}
+                                      >
+                                        {METRO_LINES[otherLineId]?.badge}
+                                      </span>
+                                    ))}
+                                  {nextSeg && (
+                                    <span
+                                      className={`text-[10px] font-mono font-semibold ${
+                                        nextSeg.isMeasured
+                                          ? 'text-emerald-600 dark:text-emerald-400'
+                                          : 'text-slate-400 dark:text-slate-500'
+                                      }`}
+                                    >
+                                      ➔{' '}
+                                      {nextSeg.durationSeconds < 60
+                                        ? `${nextSeg.durationSeconds}s`
+                                        : `${nextSeg.durationMinutes} ${t.min}`}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Quick Route Actions */}
+                            <div className="flex items-center gap-1 shrink-0 ml-2">
+                              <button
+                                onClick={() => {
+                                  haptic.medium();
+                                  onSetOrigin(station.id);
+                                  setSelectedLineId(null);
+                                }}
+                                className="px-2 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 text-[10px] font-bold hover:bg-emerald-100 transition"
+                              >
+                                Start
+                              </button>
+                              <button
+                                onClick={() => {
+                                  haptic.medium();
+                                  onSetDestination(station.id);
+                                  setSelectedLineId(null);
+                                }}
+                                className="px-2 py-1 rounded-lg bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-400 text-[10px] font-bold hover:bg-rose-100 transition"
+                              >
+                                Ziel
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </>
+                );
+              })()}
 
               <div className="pt-2 flex justify-end">
                 <button

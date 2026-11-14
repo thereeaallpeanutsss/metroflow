@@ -28,5 +28,29 @@ service cloud.firestore {
       allow update: if true;
       allow delete: if true;
     }
+
+    // Admin-measured segment travel times used globally for all users
+    function isValidTravelTime(data) {
+      return data.keys().hasAll(['id', 'lineId', 'fromStationId', 'toStationId', 'durationSeconds', 'durationMinutes', 'updatedAt'])
+             && data.keys().hasOnly(['id', 'lineId', 'fromStationId', 'toStationId', 'durationSeconds', 'durationMinutes', 'updatedAt'])
+             && data.id is string && data.id.size() > 0 && data.id.size() <= 160
+             && data.lineId is string && data.lineId.size() > 0 && data.lineId.size() <= 64
+             && data.fromStationId is string && data.fromStationId.size() > 0 && data.fromStationId.size() <= 64
+             && data.toStationId is string && data.toStationId.size() > 0 && data.toStationId.size() <= 64
+             && data.durationSeconds is number && data.durationSeconds >= 1 && data.durationSeconds <= 3600
+             && data.durationMinutes is number && data.durationMinutes > 0 && data.durationMinutes <= 60
+             && data.updatedAt is number;
+    }
+
+    match /travelTimes/{segmentId} {
+      allow read: if true;
+      allow create, update: if segmentId is string
+                            && segmentId.size() > 0
+                            && segmentId.size() <= 160
+                            && segmentId.matches('^[a-zA-Z0-9_\\-]+$')
+                            && isValidTravelTime(request.resource.data)
+                            && request.resource.data.id == segmentId;
+      allow delete: if true;
+    }
   }
 }

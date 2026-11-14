@@ -1,10 +1,21 @@
-import { Station, LineId, RouteOption, RouteLeg, RouteTransfer, RoutePreference, Disruption } from '../types/metro';
+import {
+  Station,
+  LineId,
+  RouteOption,
+  RouteLeg,
+  RouteTransfer,
+  RoutePreference,
+  Disruption,
+  TravelTimeOverridesMap,
+  RideStep,
+} from '../types/metro';
 import { METRO_LINES, STATIONS, NETWORK_CONNECTIONS } from '../data/metroData';
+import { getSegmentTimeKey, getLocalCachedTravelTimes } from '../services/travelTimesService';
 
 interface GraphEdge {
   to: string;
   lineId: LineId;
-  duration: number;
+  duration: number; // default fallback duration in minutes
 }
 
 interface GraphNode {
@@ -21,6 +32,7 @@ interface GraphNode {
 
 // Build adjacency graph with bidirectional edges
 const adjacencyList = new Map<string, GraphEdge[]>();
+const defaultSegmentDurationMap = new Map<string, number>();
 
 for (const conn of NETWORK_CONNECTIONS) {
   if (!adjacencyList.has(conn.from)) {
@@ -29,6 +41,11 @@ for (const conn of NETWORK_CONNECTIONS) {
   if (!adjacencyList.has(conn.to)) {
     adjacencyList.set(conn.to, []);
   }
+
+  defaultSegmentDurationMap.set(
+    getSegmentTimeKey(conn.lineId, conn.from, conn.to),
+    conn.durationMinutes
+  );
 
   // Forward
   adjacencyList.get(conn.from)!.push({
@@ -43,6 +60,243 @@ for (const conn of NETWORK_CONNECTIONS) {
     lineId: conn.lineId,
     duration: conn.durationMinutes,
   });
+}
+
+let globalTravelTimeOverrides: TravelTimeOverridesMap =
+  typeof window !== 'undefined' ? getLocalCachedTravelTimes() : {};
+
+export function setGlobalTravelTimeOverrides(overrides: TravelTimeOverridesMap): void {
+  globalTravelTimeOverrides = overrides || {};
+}
+
+export function getGlobalTravelTimeOverrides(): TravelTimeOverridesMap {
+  return globalTravelTimeOverrides;
+}
+
+export function roundMinutes(val: number): number {
+  return Math.round(val * 10) / 10;
+}
+
+/**
+ * Resolves the effective duration in minutes for a specific segment on a line.
+ */
+export function getEffectiveSegmentDuration(
+  lineId: LineId,
+  fromStationId: string,
+  toStationId: string,
+  overrides?: TravelTimeOverridesMap,
+  fallbackDurationMinutes?: number
+): number {
+  const map = overrides || globalTravelTimeOverrides;
+  const key = getSegmentTimeKey(lineId, fromStationId, toStationId);
+  const override = map[key];
+  if (override && typeof override.durationMinutes === 'number' && override.durationMinutes > 0) {
+    return override.durationMinutes;
+  }
+  if (override && typeof override.durationSeconds === 'number' && override.durationSeconds > 0) {
+    return Math.max(0.1, Number((override.durationSeconds / 60).toFixed(1)));
+  }
+  const defaultMin = defaultSegmentDurationMap.get(key);
+  if (typeof defaultMin === 'number') return defaultMin;
+  return typeof fallbackDurationMinutes === 'number' ? fallbackDurationMinutes : 2;
+}
+
+/**
+ * Resolves the effective duration in integer seconds for a specific segment on a line.
+ */
+export function getEffectiveSegmentSeconds(
+  lineId: LineId,
+  fromStationId: string,
+  toStationId: string,
+  overrides?: TravelTimeOverridesMap
+): number {
+  const map = overrides || globalTravelTimeOverrides;
+  const key = getSegmentTimeKey(lineId, fromStationId, toStationId);
+  const override = map[key];
+  if (override && typeof override.durationSeconds === 'number' && override.durationSeconds >= 1) {
+    return Math.round(override.durationSeconds);
+  }
+  const mins = getEffectiveSegmentDuration(lineId, fromStationId, toStationId, map);
+  return Math.max(1, Math.round(mins * 60));
+}
+
+export interface LineSegmentTiming {
+  fromStationId: string;
+  toStationId: string;
+  durationSeconds: number;
+  durationMinutes: number;
+  isMeasured: boolean;
+}
+
+export interface LineTravelSummary {
+  totalSeconds: number;
+  totalMinutes: number;
+  hasMeasuredSegments: boolean;
+  segments: LineSegmentTiming[];
+}
+
+/**
+ * Computes the complete dynamic end-to-end travel time and per-segment durations
+ * for any line, immediately reflecting admin-measured TravelTimeOverridesMap updates.
+ */
+export function getLineTotalTravelTime(
+  lineId: LineId,
+  overrides?: TravelTimeOverridesMap
+): LineTravelSummary {
+  const line = METRO_LINES[lineId];
+  const map = overrides || globalTravelTimeOverrides;
+  if (!line || !line.stations || line.stations.length < 2) {
+    return {
+      totalSeconds: 0,
+      totalMinutes: 0,
+      hasMeasuredSegments: false,
+      segments: [],
+    };
+  }
+
+  let totalSeconds = 0;
+  let hasMeasuredSegments = false;
+  const segments: LineSegmentTiming[] = [];
+
+  for (let i = 0; i < line.stations.length - 1; i++) {
+    const fromStationId = line.stations[i];
+    const toStationId = line.stations[i + 1];
+    const key = getSegmentTimeKey(lineId, fromStationId, toStationId);
+    const isMeasured = Boolean(map[key]);
+    if (isMeasured) hasMeasuredSegments = true;
+
+    const durationSeconds = getEffectiveSegmentSeconds(lineId, fromStationId, toStationId, map);
+    const durationMinutes = getEffectiveSegmentDuration(lineId, fromStationId, toStationId, map);
+    totalSeconds += durationSeconds;
+    segments.push({
+      fromStationId,
+      toStationId,
+      durationSeconds,
+      durationMinutes,
+      isMeasured,
+    });
+  }
+
+  return {
+    totalSeconds,
+    totalMinutes: totalSeconds > 0 ? Math.max(0.1, roundMinutes(totalSeconds / 60)) : 0,
+    hasMeasuredSegments,
+    segments,
+  };
+}
+
+export interface LineCompletenessCheck {
+  eligible: boolean;
+  reason?: 'no-route' | 'multi-line' | 'partial-line';
+  lineId?: LineId;
+  expectedStationsCount?: number;
+  routeStationsCount?: number;
+}
+
+/**
+ * Strict Admin Travel Time Logging check:
+ * Eligible ONLY when the route uses ONE single line with zero transfers/stopovers
+ * AND covers that complete line from start terminal to finish terminal (in either direction).
+ */
+export function isCompleteSingleLineRoute(route: RouteOption | null | undefined): LineCompletenessCheck {
+  if (!route || !route.legs || route.legs.length === 0) {
+    return { eligible: false, reason: 'no-route' };
+  }
+
+  if (route.legs.length !== 1 || route.transfersCount > 0 || route.stopoverStationId) {
+    return { eligible: false, reason: 'multi-line' };
+  }
+
+  const leg = route.legs[0];
+  const line = METRO_LINES[leg.lineId];
+  if (!line || !line.stations || line.stations.length < 2) {
+    return { eligible: false, reason: 'partial-line', lineId: leg.lineId };
+  }
+
+  const forward = line.stations;
+  const backward = [...line.stations].reverse();
+  const routeStations = leg.stations;
+
+  const matchesForward =
+    routeStations.length === forward.length &&
+    routeStations.every((id, idx) => id === forward[idx]);
+  const matchesBackward =
+    routeStations.length === backward.length &&
+    routeStations.every((id, idx) => id === backward[idx]);
+
+  if (!matchesForward && !matchesBackward) {
+    return {
+      eligible: false,
+      reason: 'partial-line',
+      lineId: leg.lineId,
+      expectedStationsCount: line.stations.length,
+      routeStationsCount: routeStations.length,
+    };
+  }
+
+  return {
+    eligible: true,
+    lineId: leg.lineId,
+    expectedStationsCount: line.stations.length,
+    routeStationsCount: routeStations.length,
+  };
+}
+
+/**
+ * Builds the flat stop-by-stop array for Active Ride Mode, including pre-transfer alerts,
+ * transfer arrival notifications, and exact segment durations.
+ */
+export function buildRideSteps(
+  route: RouteOption,
+  overrides?: TravelTimeOverridesMap
+): RideStep[] {
+  const steps: RideStep[] = [];
+  if (!route || !route.legs || route.legs.length === 0) return steps;
+
+  for (let legIdx = 0; legIdx < route.legs.length; legIdx++) {
+    const leg = route.legs[legIdx];
+    const nextLeg = legIdx < route.legs.length - 1 ? route.legs[legIdx + 1] : null;
+    const stationsToAppend = legIdx === 0 ? leg.stations : leg.stations.slice(1);
+
+    for (let sIdx = 0; sIdx < stationsToAppend.length; sIdx++) {
+      const stationId = stationsToAppend[sIdx];
+      const isLastInLeg = sIdx === stationsToAppend.length - 1;
+      const isOperationalTransfer =
+        leg.lineId === 'U-Dunkelblau' &&
+        stationId === 'jurassic-park' &&
+        !(legIdx === 0 && sIdx === 0) &&
+        !(legIdx === route.legs.length - 1 && isLastInLeg);
+
+      steps.push({
+        stationId,
+        lineId: leg.lineId,
+        legIndex: legIdx,
+        isTransferArrival: Boolean(isLastInLeg && nextLeg),
+        transferToLineId: isLastInLeg && nextLeg ? nextLeg.lineId : undefined,
+        isOperationalTransfer,
+        segmentSecondsToNext: 0,
+      });
+    }
+  }
+
+  // Compute pre-transfer warnings (1 stop BEFORE transfer station) and segment durations
+  for (let i = 0; i < steps.length - 1; i++) {
+    const curr = steps[i];
+    const next = steps[i + 1];
+    if (next.isTransferArrival) {
+      curr.isTransferBeforeNextStop = true;
+      curr.transferToLineId = next.transferToLineId;
+    }
+    const travelLineId = curr.isTransferArrival && curr.transferToLineId ? curr.transferToLineId : next.lineId;
+    curr.segmentSecondsToNext = getEffectiveSegmentSeconds(
+      travelLineId,
+      curr.stationId,
+      next.stationId,
+      overrides
+    );
+  }
+
+  return steps;
 }
 
 /**
@@ -140,7 +394,8 @@ export function findRoutes(
   destinationId: string,
   preference: RoutePreference = 'fastest',
   avoidDisruptions: Disruption[] = [],
-  activeDisruptions: Disruption[] = []
+  activeDisruptions: Disruption[] = [],
+  travelTimeOverrides?: TravelTimeOverridesMap
 ): RouteOption[] {
   if (!originId || !destinationId || originId === destinationId) {
     return [];
@@ -166,7 +421,8 @@ export function findRoutes(
       0,
       0,
       isBypassMode ? 'Wenigste Umstiege (Umfahrung)' : 'Wenigste Umstiege',
-      avoidDisruptions
+      avoidDisruptions,
+      travelTimeOverrides
     );
     if (fewest) routes.push(fewest);
 
@@ -178,7 +434,8 @@ export function findRoutes(
       0,
       0,
       isBypassMode ? 'Schnellste Umfahrung' : 'Schnellste Alternative',
-      avoidDisruptions
+      avoidDisruptions,
+      travelTimeOverrides
     );
     if (fastest && !isDuplicateRoute(routes, fastest)) routes.push(fastest);
   } else if (preference === 'prioritize-metro') {
@@ -190,7 +447,8 @@ export function findRoutes(
       0,
       10,
       isBypassMode ? 'U-Bahn Umfahrung' : 'U-Bahn bevorzugt',
-      avoidDisruptions
+      avoidDisruptions,
+      travelTimeOverrides
     );
     if (metroPref) routes.push(metroPref);
 
@@ -202,7 +460,8 @@ export function findRoutes(
       0,
       0,
       isBypassMode ? 'Schnellste Umfahrung' : 'Schnellste Route',
-      avoidDisruptions
+      avoidDisruptions,
+      travelTimeOverrides
     );
     if (fastest && !isDuplicateRoute(routes, fastest)) routes.push(fastest);
   } else if (preference === 'prioritize-ic') {
@@ -214,7 +473,8 @@ export function findRoutes(
       10,
       0,
       isBypassMode ? 'IC Umfahrung' : 'IC-Züge bevorzugt',
-      avoidDisruptions
+      avoidDisruptions,
+      travelTimeOverrides
     );
     if (icPref) routes.push(icPref);
 
@@ -226,7 +486,8 @@ export function findRoutes(
       0,
       0,
       isBypassMode ? 'Schnellste Umfahrung' : 'Schnellste Route',
-      avoidDisruptions
+      avoidDisruptions,
+      travelTimeOverrides
     );
     if (fastest && !isDuplicateRoute(routes, fastest)) routes.push(fastest);
   } else if (preference === 'accessible') {
@@ -238,7 +499,8 @@ export function findRoutes(
       0,
       0,
       isBypassMode ? 'Barrierefreie Umfahrung' : 'Barrierefreie Route',
-      avoidDisruptions
+      avoidDisruptions,
+      travelTimeOverrides
     );
     if (accessible) routes.push(accessible);
 
@@ -250,7 +512,8 @@ export function findRoutes(
       0,
       0,
       isBypassMode ? 'Schnellste Umfahrung' : 'Schnellste Route',
-      avoidDisruptions
+      avoidDisruptions,
+      travelTimeOverrides
     );
     if (fastest && !isDuplicateRoute(routes, fastest)) routes.push(fastest);
   } else {
@@ -263,7 +526,8 @@ export function findRoutes(
       0,
       0,
       isBypassMode ? 'Störungsfreie Alternativroute' : 'Schnellste Route',
-      avoidDisruptions
+      avoidDisruptions,
+      travelTimeOverrides
     );
     if (fastest) routes.push(fastest);
 
@@ -275,7 +539,8 @@ export function findRoutes(
       0,
       0,
       isBypassMode ? 'Wenigste Umstiege (Umfahrung)' : 'Wenigste Umstiege',
-      avoidDisruptions
+      avoidDisruptions,
+      travelTimeOverrides
     );
     if (directOrFewest && !isDuplicateRoute(routes, directOrFewest)) {
       routes.push(directOrFewest);
@@ -308,10 +573,18 @@ export function findRoutesWithStopover(
   destinationId: string,
   preference: RoutePreference = 'fastest',
   avoidDisruptions: Disruption[] = [],
-  activeDisruptions: Disruption[] = []
+  activeDisruptions: Disruption[] = [],
+  travelTimeOverrides?: TravelTimeOverridesMap
 ): RouteOption[] {
   if (!stopoverId || stopoverId === originId || stopoverId === destinationId) {
-    return findRoutes(originId, destinationId, preference, avoidDisruptions, activeDisruptions);
+    return findRoutes(
+      originId,
+      destinationId,
+      preference,
+      avoidDisruptions,
+      activeDisruptions,
+      travelTimeOverrides
+    );
   }
 
   const routesToStopover = findRoutes(
@@ -319,14 +592,16 @@ export function findRoutesWithStopover(
     stopoverId,
     preference,
     avoidDisruptions,
-    activeDisruptions
+    activeDisruptions,
+    travelTimeOverrides
   );
   const routesFromStopover = findRoutes(
     stopoverId,
     destinationId,
     preference,
     avoidDisruptions,
-    activeDisruptions
+    activeDisruptions,
+    travelTimeOverrides
   );
 
   if (routesToStopover.length === 0 || routesFromStopover.length === 0) {
@@ -367,8 +642,9 @@ export function findRoutesWithStopover(
   const combinedRoute: RouteOption = {
     id: `stopover-route-${Date.now()}`,
     title,
-    totalDurationMinutes:
-      leg1.totalDurationMinutes + leg2.totalDurationMinutes + (requiresTransferAtStopover ? 3 : 0),
+    totalDurationMinutes: roundMinutes(
+      leg1.totalDurationMinutes + leg2.totalDurationMinutes + (requiresTransferAtStopover ? 3 : 0)
+    ),
     transfersCount: transfers.length,
     totalStops: leg1.totalStops + leg2.totalStops,
     legs: combinedLegs,
@@ -397,7 +673,8 @@ function dijkstraSearch(
   metroPenalty: number,
   icPenalty: number,
   routeTitle: string,
-  avoidDisruptions: Disruption[] = []
+  avoidDisruptions: Disruption[] = [],
+  travelTimeOverrides?: TravelTimeOverridesMap
 ): RouteOption | null {
   const visited = new Map<string, number>();
 
@@ -438,6 +715,13 @@ function dijkstraSearch(
     const edges = adjacencyList.get(current.stationId) || [];
     for (const edge of edges) {
       const lineInfo = METRO_LINES[edge.lineId];
+      const effectiveDuration = getEffectiveSegmentDuration(
+        edge.lineId,
+        current.stationId,
+        edge.to,
+        travelTimeOverrides,
+        edge.duration
+      );
       const isTransfer = current.lineId !== null && current.lineId !== edge.lineId;
       const transferTime = isTransfer ? 3 : 0;
       const transferCountInc = isTransfer ? 1 : 0;
@@ -469,7 +753,7 @@ function dijkstraSearch(
         lineId: edge.lineId,
         totalTime:
           current.totalTime +
-          edge.duration +
+          effectiveDuration +
           transferTime +
           modePenalty +
           accessibilityPenalty +
@@ -480,7 +764,7 @@ function dijkstraSearch(
           {
             stationId: edge.to,
             lineId: edge.lineId,
-            duration: edge.duration,
+            duration: effectiveDuration,
           },
         ],
       };
@@ -570,14 +854,14 @@ function formatRouteOption(
         fromStationId: previousStationId,
         toStationId: step.stationId,
         stations: [previousStationId, step.stationId],
-        durationMinutes: step.duration,
+        durationMinutes: roundMinutes(step.duration),
         stopsCount: 1,
         networkType: netType,
       };
     } else {
       currentLeg.toStationId = step.stationId;
       currentLeg.stations.push(step.stationId);
-      currentLeg.durationMinutes += step.duration;
+      currentLeg.durationMinutes = roundMinutes(currentLeg.durationMinutes + step.duration);
       currentLeg.stopsCount += 1;
     }
 
@@ -595,7 +879,7 @@ function formatRouteOption(
   return {
     id: `route-${Math.random().toString(36).substring(2, 9)}`,
     title,
-    totalDurationMinutes: trueTotalTime,
+    totalDurationMinutes: roundMinutes(trueTotalTime),
     transfersCount: transfers.length,
     totalStops: node.path.length,
     legs,

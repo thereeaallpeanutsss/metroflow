@@ -14,6 +14,7 @@ import {
   ChevronRight,
   Layers,
   Compass,
+  Navigation,
 } from 'lucide-react';
 import { Language, translations } from '../../utils/i18n';
 import { haptic } from '../../utils/haptics';
@@ -28,6 +29,9 @@ interface IOSHeaderProps {
   activeTab?: AppTab;
   onNavigateToTab?: (tab: AppTab) => void;
   disruptions?: Disruption[];
+  hasMinimizedActiveRide?: boolean;
+  onOpenActiveRide?: () => void;
+  onStatusWindowOpenChange?: (isOpen: boolean) => void;
 }
 
 export const IOSHeader: React.FC<IOSHeaderProps> = ({
@@ -37,11 +41,24 @@ export const IOSHeader: React.FC<IOSHeaderProps> = ({
   activeTab,
   onNavigateToTab,
   disruptions = [],
+  hasMinimizedActiveRide = false,
+  onOpenActiveRide,
+  onStatusWindowOpenChange,
 }) => {
   const t = translations[language];
   const isOnline = useOnlineStatus();
   const [isIslandExpanded, setIsIslandExpanded] = useState(false);
   const [currentTime, setCurrentTime] = useState('');
+
+  useEffect(() => {
+    onStatusWindowOpenChange?.(isIslandExpanded);
+  }, [isIslandExpanded, onStatusWindowOpenChange]);
+
+  useEffect(() => {
+    return () => {
+      onStatusWindowOpenChange?.(false);
+    };
+  }, [onStatusWindowOpenChange]);
 
   const activeDisruptionsCount = disruptions.length;
   const isAllClear = activeDisruptionsCount === 0;
@@ -90,8 +107,9 @@ export const IOSHeader: React.FC<IOSHeaderProps> = ({
             </div>
           </div>
 
-          {/* Center: Apple Dynamic Island Pill */}
-          <div className="relative">
+          {/* Center: Apple Dynamic Island Pill + Optional Active Ride Pill */}
+          <div className="flex items-center justify-center gap-1.5 min-w-0 px-1">
+            <div className="relative min-w-0">
             <motion.button
               onClick={() => {
                 haptic.selection();
@@ -224,6 +242,31 @@ export const IOSHeader: React.FC<IOSHeaderProps> = ({
                 </motion.div>
               )}
             </AnimatePresence>
+            </div>
+
+            {hasMinimizedActiveRide && onOpenActiveRide && (
+              <motion.button
+                initial={{ opacity: 0, scale: 0.88 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.88 }}
+                whileTap={{ scale: 0.96 }}
+                onClick={() => {
+                  haptic.selection();
+                  onOpenActiveRide();
+                }}
+                className="px-2.5 sm:px-3 py-1.5 rounded-full flex items-center gap-1.5 border bg-emerald-950/95 text-emerald-300 border-emerald-500/50 hover:border-emerald-400 shadow-sm shadow-emerald-500/20 cursor-pointer shrink-0 whitespace-nowrap transition-all"
+                title={t.rideModeTitle}
+              >
+                <span className="relative flex h-2 w-2 shrink-0">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+                </span>
+                <Navigation className="w-3 h-3 text-emerald-400 shrink-0" />
+                <span className="text-[11px] font-bold tracking-tight text-white">
+                  {t.activeRide}
+                </span>
+              </motion.button>
+            )}
           </div>
 
           {/* Right Side: Connectivity & Theme Switcher */}

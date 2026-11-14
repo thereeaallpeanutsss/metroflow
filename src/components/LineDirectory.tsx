@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { LineId, Station, Disruption, LineNetworkType } from '../types/metro';
+import { LineId, Station, Disruption, LineNetworkType, TravelTimeOverridesMap } from '../types/metro';
 import { METRO_LINES, STATIONS } from '../data/metroData';
 import { Language, translations } from '../utils/i18n';
 import { ReportDisruptionModal } from './ReportDisruptionModal';
 import { ConfirmDeleteDisruptionModal } from './ConfirmDeleteDisruptionModal';
 import { NewDisruptionPayload } from '../services/disruptionsService';
+import { getLineTotalTravelTime } from '../utils/routeFinder';
 import { haptic } from '../utils/haptics';
 import {
   Search,
@@ -44,6 +45,7 @@ interface LineDirectoryProps {
   isAdmin?: boolean;
   onEditDisruption?: (disruption: Disruption) => void;
   onDeleteDisruption?: (id: string) => Promise<void>;
+  travelTimeOverrides?: TravelTimeOverridesMap;
 }
 
 export const LineDirectory: React.FC<LineDirectoryProps> = ({
@@ -60,6 +62,7 @@ export const LineDirectory: React.FC<LineDirectoryProps> = ({
   isAdmin = false,
   onEditDisruption,
   onDeleteDisruption,
+  travelTimeOverrides,
 }) => {
   const t = translations[language];
 
@@ -474,115 +477,160 @@ export const LineDirectory: React.FC<LineDirectoryProps> = ({
         </div>
 
         {/* Selected Line Details Card */}
-        {activeLine && (
-          <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60 space-y-2 mt-2">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span
-                  className="px-2 py-0.5 rounded text-xs font-bold text-white shadow-xs"
-                  style={{ backgroundColor: activeLine.color }}
-                >
-                  {activeLine.badge}
-                </span>
-                <span className="text-sm font-bold text-slate-900 dark:text-white">
-                  {activeLine.name}
-                </span>
+        {activeLine && (() => {
+          const lineTiming = getLineTotalTravelTime(activeLine.id, travelTimeOverrides);
+          return (
+            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60 space-y-2 mt-2">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <span
+                    className="px-2 py-0.5 rounded text-xs font-bold text-white shadow-xs"
+                    style={{ backgroundColor: activeLine.color }}
+                  >
+                    {activeLine.badge}
+                  </span>
+                  <span className="text-sm font-bold text-slate-900 dark:text-white">
+                    {activeLine.name}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <div
+                    className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold border ${
+                      lineTiming.hasMeasuredSegments
+                        ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
+                        : 'bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800'
+                    }`}
+                    title={
+                      language === 'de'
+                        ? 'Geschätzte Gesamtfahrzeit von Start- bis Endstation'
+                        : 'Estimated total travel time from start to finish'
+                    }
+                  >
+                    <Clock className="w-3 h-3 shrink-0" />
+                    <span>
+                      ~{lineTiming.totalMinutes} {t.min}
+                    </span>
+                  </div>
+                </div>
               </div>
-              <div className="flex items-center gap-1 text-[11px] text-slate-500 dark:text-slate-400">
-                <Clock className="w-3 h-3" />
-                <span>
-                  ~{activeLine.frequencyMinutes} {t.min}
-                </span>
+              <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                {activeLine.description}
+              </p>
+              <div className="text-[11px] text-slate-500 dark:text-slate-400 pt-1 border-t border-slate-200 dark:border-slate-700/40 flex items-center justify-between gap-2 flex-wrap">
+                <div>
+                  {t.terminals}{' '}
+                  <strong className="text-slate-900 dark:text-white">{activeLine.terminals[0]}</strong> ↔{' '}
+                  <strong className="text-slate-900 dark:text-white">{activeLine.terminals[1]}</strong>
+                </div>
+                {activeLine.frequencyMinutes && (
+                  <span className="text-[10px] font-semibold text-slate-400 dark:text-slate-500">
+                    {language === 'de'
+                      ? `Takt: alle ${activeLine.frequencyMinutes} Min.`
+                      : `Every ${activeLine.frequencyMinutes} min`}
+                  </span>
+                )}
               </div>
             </div>
-            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-              {activeLine.description}
-            </p>
-            <div className="text-[11px] text-slate-500 dark:text-slate-400 pt-1 border-t border-slate-200 dark:border-slate-700/40">
-              {t.terminals}{' '}
-              <strong className="text-slate-900 dark:text-white">{activeLine.terminals[0]}</strong> ↔{' '}
-              <strong className="text-slate-900 dark:text-white">{activeLine.terminals[1]}</strong>
+          );
+        })()}
+      </div>
+
+        {/* Stations along Selected Line */}
+      {(() => {
+        const lineTiming = getLineTotalTravelTime(activeLine.id, travelTimeOverrides);
+        return (
+          <div className="bg-white dark:bg-slate-900/90 backdrop-blur-xl border border-slate-200 dark:border-slate-800 rounded-3xl p-4 shadow-xl space-y-3">
+            <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center justify-between gap-2">
+              <span>{activeLine.shortName}</span>
+              <span className="text-xs font-normal text-slate-500 dark:text-slate-400">
+                {activeLine.stations.length} {t.stationsCount} • ~{lineTiming.totalMinutes} {t.min}
+              </span>
+            </h3>
+
+            <div className="space-y-1 divide-y divide-slate-100 dark:divide-slate-800/50">
+              {activeLine.stations.map((stId, idx) => {
+                const st = STATIONS[stId];
+                if (!st) return null;
+                const nextSegment = lineTiming.segments[idx];
+                return (
+                  <div
+                    key={stId}
+                    className="py-2.5 flex items-center justify-between group hover:bg-slate-50 dark:hover:bg-slate-800/30 px-2 rounded-xl transition"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-5 text-center text-xs font-semibold text-slate-400 dark:text-slate-500 shrink-0">
+                        {idx + 1}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-1.5 flex-wrap">
+                          <span>{st.name}</span>
+                          {st.hasAirport && <span className="text-xs">✈</span>}
+                          {st.hasIC && <span className="text-xs">🚆</span>}
+                          {st.hasICTransferRequired && <span className="text-xs">⚙️</span>}
+                          {st.isAccessible && <span className="text-xs">♿</span>}
+                          {st.isTimTrain && (
+                            <span className="w-3.5 h-3.5 rounded-full border border-purple-400 text-[8px] flex items-center justify-center font-bold text-purple-600 dark:text-purple-300">
+                              T
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                          {st.lines.slice(0, 4).map((lId) => (
+                            <span
+                              key={lId}
+                              className="px-1 py-0.2 rounded text-[8px] font-bold text-white"
+                              style={{ backgroundColor: METRO_LINES[lId]?.color }}
+                            >
+                              {METRO_LINES[lId]?.badge}
+                            </span>
+                          ))}
+                          {nextSegment && (
+                            <span
+                              className={`text-[10px] font-mono font-semibold ${
+                                nextSegment.isMeasured
+                                  ? 'text-emerald-600 dark:text-emerald-400'
+                                  : 'text-slate-400 dark:text-slate-500'
+                              }`}
+                            >
+                              ➔{' '}
+                              {nextSegment.durationSeconds < 60
+                                ? `${nextSegment.durationSeconds}s`
+                                : `${nextSegment.durationMinutes} ${t.min}`}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        onClick={() => {
+                          haptic.light();
+                          onSetOrigin(st.id);
+                        }}
+                        className="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 hover:text-emerald-500 transition"
+                        title={t.startHere}
+                      >
+                        <MapPin className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => {
+                          haptic.light();
+                          onSetDestination(st.id);
+                        }}
+                        className="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 hover:text-rose-500 transition"
+                        title={t.setAsDestination}
+                      >
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
-        )}
-      </div>
-
-      {/* Stations along Selected Line */}
-      <div className="bg-white dark:bg-slate-900/90 backdrop-blur-xl border border-slate-200 dark:border-slate-800 rounded-3xl p-4 shadow-xl space-y-3">
-        <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center justify-between">
-          <span>{activeLine.shortName}</span>
-          <span className="text-xs font-normal text-slate-500 dark:text-slate-400">
-            {activeLine.stations.length} {t.stationsCount}
-          </span>
-        </h3>
-
-        <div className="space-y-1 divide-y divide-slate-100 dark:divide-slate-800/50">
-          {activeLine.stations.map((stId, idx) => {
-            const st = STATIONS[stId];
-            if (!st) return null;
-            return (
-              <div
-                key={stId}
-                className="py-2.5 flex items-center justify-between group hover:bg-slate-50 dark:hover:bg-slate-800/30 px-2 rounded-xl transition"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-5 text-center text-xs font-semibold text-slate-400 dark:text-slate-500">
-                    {idx + 1}
-                  </div>
-                  <div>
-                    <div className="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-1.5">
-                      <span>{st.name}</span>
-                      {st.hasAirport && <span className="text-xs">✈</span>}
-                      {st.hasIC && <span className="text-xs">🚆</span>}
-                      {st.hasICTransferRequired && <span className="text-xs">⚙️</span>}
-                      {st.isAccessible && <span className="text-xs">♿</span>}
-                      {st.isTimTrain && (
-                        <span className="w-3.5 h-3.5 rounded-full border border-purple-400 text-[8px] flex items-center justify-center font-bold text-purple-600 dark:text-purple-300">
-                          T
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-1 mt-0.5">
-                      {st.lines.slice(0, 4).map((lId) => (
-                        <span
-                          key={lId}
-                          className="px-1 py-0.2 rounded text-[8px] font-bold text-white"
-                          style={{ backgroundColor: METRO_LINES[lId]?.color }}
-                        >
-                          {METRO_LINES[lId]?.badge}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-1">
-                  <button
-                    onClick={() => {
-                      haptic.light();
-                      onSetOrigin(st.id);
-                    }}
-                    className="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 hover:text-emerald-500 transition"
-                    title={t.startHere}
-                  >
-                    <MapPin className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    onClick={() => {
-                      haptic.light();
-                      onSetDestination(st.id);
-                    }}
-                    className="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 hover:text-rose-500 transition"
-                    title={t.setAsDestination}
-                  >
-                    <ArrowRight className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
+        );
+      })()}
 
       {/* Complete Stations Directory & Quick Search */}
       <div className="bg-white dark:bg-slate-900/90 backdrop-blur-xl border border-slate-200 dark:border-slate-800 rounded-3xl p-4 shadow-xl space-y-3">

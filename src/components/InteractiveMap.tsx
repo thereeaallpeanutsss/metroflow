@@ -1,8 +1,9 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Station, LineId, RouteOption, Disruption } from '../types/metro';
+import { Station, LineId, RouteOption, Disruption, ActiveRideState, TravelTimeOverridesMap } from '../types/metro';
 import { STATIONS, METRO_LINES } from '../data/metroData';
 import { buildLegTrackPath } from '../utils/trackPaths';
+import { getLineTotalTravelTime } from '../utils/routeFinder';
 import { Language, translations, getDisruptionTypeLabel } from '../utils/i18n';
 import { ConfirmDeleteDisruptionModal } from './ConfirmDeleteDisruptionModal';
 import { haptic } from '../utils/haptics';
@@ -36,6 +37,7 @@ import {
   Pencil,
   Trash2,
   Search,
+  Navigation,
 } from 'lucide-react';
 
 interface InteractiveMapProps {
@@ -69,6 +71,9 @@ interface InteractiveMapProps {
   isAdmin?: boolean;
   onEditDisruption?: (disruption: Disruption) => void;
   onDeleteDisruption?: (disruptionId: string) => Promise<void>;
+  activeRide?: ActiveRideState | null;
+  onOpenActiveRide?: () => void;
+  travelTimeOverrides?: TravelTimeOverridesMap;
 }
 
 export const InteractiveMap: React.FC<InteractiveMapProps> = ({
@@ -102,6 +107,9 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
   isAdmin = false,
   onEditDisruption,
   onDeleteDisruption,
+  activeRide = null,
+  onOpenActiveRide,
+  travelTimeOverrides,
 }) => {
   const t = translations[language];
 
@@ -1992,6 +2000,94 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
           </g>
         )}
 
+        {/* ----------------- ACTIVE RIDE LIVE SEGMENT HIGHLIGHT ----------------- */}
+        {activeRide && activeRide.steps.length > 0 && (() => {
+          const curStep = activeRide.steps[activeRide.currentStepIndex];
+          const nextStep = activeRide.steps[activeRide.currentStepIndex + 1];
+          const curStation = curStep ? STATIONS[curStep.stationId] : null;
+          const nextStation = nextStep ? STATIONS[nextStep.stationId] : null;
+          const segLineId = curStep && nextStep
+            ? (curStep.isTransferArrival && curStep.transferToLineId ? curStep.transferToLineId : nextStep.lineId)
+            : curStep?.lineId;
+          const segPathD =
+            curStep && nextStep && segLineId
+              ? buildLegTrackPath(segLineId, [curStep.stationId, nextStep.stationId])
+              : '';
+
+          return (
+            <g id="active-ride-current-segment" style={{ pointerEvents: 'none' }}>
+              {segPathD && (
+                <>
+                  <path
+                    d={segPathD}
+                    fill="none"
+                    stroke="#10B981"
+                    strokeWidth="16"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    opacity={highlightGlowEnabled ? '0.55' : '0.35'}
+                    filter={highlightGlowEnabled ? 'url(#routeGlow)' : undefined}
+                  />
+                  <path
+                    d={segPathD}
+                    fill="none"
+                    stroke="#10B981"
+                    strokeWidth="9"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                  <path
+                    d={segPathD}
+                    fill="none"
+                    stroke="#FFFFFF"
+                    strokeWidth="3.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeDasharray="8 6"
+                    className="route-flow-line"
+                  />
+                </>
+              )}
+
+              {curStation && (
+                <g>
+                  <circle
+                    cx={curStation.x}
+                    cy={curStation.y}
+                    r="16"
+                    fill="none"
+                    stroke="#10B981"
+                    strokeWidth="3"
+                    opacity="0.7"
+                    className="animate-ping"
+                    style={{ transformOrigin: `${curStation.x}px ${curStation.y}px` }}
+                  />
+                  <circle
+                    cx={curStation.x}
+                    cy={curStation.y}
+                    r="12"
+                    fill="none"
+                    stroke="#10B981"
+                    strokeWidth="3.5"
+                  />
+                </g>
+              )}
+
+              {nextStation && (
+                <circle
+                  cx={nextStation.x}
+                  cy={nextStation.y}
+                  r="11"
+                  fill="none"
+                  stroke="#06B6D4"
+                  strokeWidth="2.5"
+                  strokeDasharray="4 3"
+                />
+              )}
+            </g>
+          );
+        })()}
+
         {/* ----------------- STATION NODES ----------------- */}
         {visibleStations.map((station) => {
           const isOrigin = selectedOriginId === station.id;
@@ -2547,7 +2643,35 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
               </div>
             )}
 
-            <div className="flex items-center gap-2 pt-1">
+            {activeRide && (
+              <div className="p-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800/70 flex items-center justify-between gap-2 text-[11px]">
+                <div className="flex items-center gap-1.5 min-w-0 font-bold text-emerald-800 dark:text-emerald-200">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                  <span className="truncate">
+                    {STATIONS[activeRide.steps[activeRide.currentStepIndex]?.stationId]?.name}
+                  </span>
+                </div>
+                <span className="text-[10px] font-mono font-bold text-emerald-700 dark:text-emerald-300 shrink-0">
+                  {activeRide.currentStepIndex + 1}/{activeRide.steps.length}
+                </span>
+              </div>
+            )}
+
+            <div className="flex items-center gap-2 pt-1 flex-wrap">
+              {activeRide && onOpenActiveRide && (
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.96 }}
+                  onClick={() => {
+                    haptic.medium();
+                    onOpenActiveRide();
+                  }}
+                  className="py-1.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white text-[11px] font-bold shadow-md shadow-emerald-600/25 flex items-center justify-center gap-1.5 transition cursor-pointer"
+                >
+                  <Navigation className="w-3.5 h-3.5" />
+                  <span>{t.activeRide}</span>
+                </motion.button>
+              )}
               {onNavigateToPlanner && (
                 <motion.button
                   whileHover={{ scale: 1.02 }}
@@ -3434,20 +3558,36 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                     style={{ touchAction: 'pan-y' }}
                     onPointerDown={(e) => e.stopPropagation()}
                   >
-                  {/* Terminals & Frequency */}
-                  <div className="flex items-center justify-between text-xs py-2 px-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800">
-                    <div className="flex items-center gap-1.5 text-slate-700 dark:text-slate-300 font-semibold truncate min-w-0">
-                      <span className="text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-wider shrink-0">
-                        {language === 'de' ? 'Strecke:' : 'Route:'}
-                      </span>
-                      <span className="truncate">{clickedLine.terminals.join(' ↔ ')}</span>
-                    </div>
-                    {clickedLine.frequencyMinutes && (
-                      <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950 px-2 py-0.5 rounded-full shrink-0 ml-2">
-                        ⏱ {language === 'de' ? `Alle ${clickedLine.frequencyMinutes} Min.` : `Every ${clickedLine.frequencyMinutes} min`}
-                      </span>
-                    )}
-                  </div>
+                  {/* Terminals, Total Ride Time & Frequency */}
+                  {(() => {
+                    const lineTiming = getLineTotalTravelTime(clickedLine.id, travelTimeOverrides);
+                    return (
+                      <div className="flex items-center justify-between gap-2 flex-wrap text-xs py-2 px-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800">
+                        <div className="flex items-center gap-1.5 text-slate-700 dark:text-slate-300 font-semibold truncate min-w-0 flex-1">
+                          <span className="text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-wider shrink-0">
+                            {language === 'de' ? 'Strecke:' : 'Route:'}
+                          </span>
+                          <span className="truncate">{clickedLine.terminals.join(' ↔ ')}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <span
+                            className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                              lineTiming.hasMeasuredSegments
+                                ? 'bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300'
+                                : 'bg-slate-200/70 dark:bg-slate-700 text-slate-700 dark:text-slate-200'
+                            }`}
+                          >
+                            ~{lineTiming.totalMinutes} {t.min}
+                          </span>
+                          {clickedLine.frequencyMinutes && (
+                            <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950 px-2 py-0.5 rounded-full">
+                              ⏱ {language === 'de' ? `Alle ${clickedLine.frequencyMinutes} Min.` : `Every ${clickedLine.frequencyMinutes} min`}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })()}
 
                   {/* Reported Disruptions for this Line */}
                   {(() => {

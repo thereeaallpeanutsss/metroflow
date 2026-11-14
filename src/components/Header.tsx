@@ -16,6 +16,7 @@ import {
   ArrowRight,
   ShieldAlert,
   ChevronRight,
+  Navigation,
 } from 'lucide-react';
 import { Language, translations, getDisruptionTypeLabel } from '../utils/i18n';
 import { haptic } from '../utils/haptics';
@@ -31,6 +32,9 @@ interface HeaderProps {
   activeTab?: AppTab;
   onNavigateToTab?: (tab: AppTab) => void;
   disruptions?: Disruption[];
+  hasMinimizedActiveRide?: boolean;
+  onOpenActiveRide?: () => void;
+  onStatusWindowOpenChange?: (isOpen: boolean) => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -40,12 +44,25 @@ export const Header: React.FC<HeaderProps> = ({
   activeTab,
   onNavigateToTab,
   disruptions = [],
+  hasMinimizedActiveRide = false,
+  onOpenActiveRide,
+  onStatusWindowOpenChange,
 }) => {
   const t = translations[language];
   const isOnline = useOnlineStatus();
 
   // Status modal state
   const [isStatusModalOpen, setIsStatusModalOpen] = useState(false);
+
+  useEffect(() => {
+    onStatusWindowOpenChange?.(isStatusModalOpen);
+  }, [isStatusModalOpen, onStatusWindowOpenChange]);
+
+  useEffect(() => {
+    return () => {
+      onStatusWindowOpenChange?.(false);
+    };
+  }, [onStatusWindowOpenChange]);
 
   // Live time & date state
   const [shortTime, setShortTime] = useState('');
@@ -135,13 +152,13 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           </div>
 
-          {/* Center: Live Time Window & Disruption Pill Badge (matches iOS overhauled top bar) */}
-          <div className="flex items-center justify-center flex-1 min-w-0 px-1">
+          {/* Center: Live Time Window, Disruption Pill & Active Ride Pill */}
+          <div className="flex items-center justify-center gap-1.5 flex-1 min-w-0 px-1">
             <motion.button
               onClick={handleOpenStatusModal}
               whileHover={{ scale: 1.03 }}
               whileTap={{ scale: 0.96 }}
-              className={`px-3 py-1.5 rounded-full flex items-center gap-2 border transition-all cursor-pointer shadow-sm truncate max-w-full ${
+              className={`px-2.5 sm:px-3 py-1.5 rounded-full flex items-center gap-1.5 sm:gap-2 border transition-all cursor-pointer shadow-sm truncate max-w-full ${
                 isAllClear
                   ? 'bg-slate-900/90 dark:bg-zinc-900/90 text-white border-slate-700/60 dark:border-zinc-700/60 hover:bg-slate-800 dark:hover:bg-zinc-800'
                   : 'bg-black/95 dark:bg-zinc-900/95 text-amber-300 border-amber-500/40 hover:border-amber-400 shadow-amber-500/10'
@@ -189,6 +206,31 @@ export const Header: React.FC<HeaderProps> = ({
                 </span>
               )}
             </motion.button>
+
+            {hasMinimizedActiveRide && onOpenActiveRide && (
+              <motion.button
+                initial={{ opacity: 0, scale: 0.88 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.88 }}
+                whileHover={{ scale: 1.03 }}
+                whileTap={{ scale: 0.96 }}
+                onClick={() => {
+                  haptic.selection();
+                  onOpenActiveRide();
+                }}
+                className="px-2.5 sm:px-3 py-1.5 rounded-full flex items-center gap-1.5 border bg-emerald-950/95 dark:bg-emerald-950/95 text-emerald-300 border-emerald-500/50 hover:border-emerald-400 shadow-sm shadow-emerald-500/20 cursor-pointer shrink-0 whitespace-nowrap transition-all"
+                title={t.rideModeTitle}
+              >
+                <span className="relative flex h-2 w-2 shrink-0">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+                </span>
+                <Navigation className="w-3 h-3 text-emerald-400 shrink-0" />
+                <span className="text-[11px] font-bold tracking-tight text-white">
+                  {t.activeRide}
+                </span>
+              </motion.button>
+            )}
           </div>
 
           {/* Right side actions: Online/Offline status + Quick theme toggle + PWA install button */}

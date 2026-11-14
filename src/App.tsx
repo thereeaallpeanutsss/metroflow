@@ -12,8 +12,18 @@ import { InteractiveMap } from './components/InteractiveMap';
 import { LineDirectory } from './components/LineDirectory';
 import { OptionsMenu } from './components/OptionsMenu';
 import { OfflineIndicator } from './components/OfflineIndicator';
-import { findRoutesWithStopover } from './utils/routeFinder';
-import { RouteOption, LineId, SavedJourney, RoutePreference, Disruption, RecentRoute } from './types/metro';
+import { findRoutesWithStopover, buildRideSteps, setGlobalTravelTimeOverrides } from './utils/routeFinder';
+import {
+  RouteOption,
+  LineId,
+  SavedJourney,
+  RoutePreference,
+  Disruption,
+  RecentRoute,
+  TravelTimeOverridesMap,
+  ActiveRideState,
+  MeasuredSegmentLog,
+} from './types/metro';
 import { STATIONS, METRO_LINES } from './data/metroData';
 import { Language, translations } from './utils/i18n';
 import {
@@ -54,6 +64,13 @@ import {
   getLocalCachedArticles,
   subscribeToArticles,
 } from './services/articlesService';
+import {
+  fetchTravelTimes,
+  subscribeToTravelTimes,
+  saveLineTravelTimes,
+  getLocalCachedTravelTimes,
+} from './services/travelTimesService';
+import { RideModeModal } from './components/RideModeModal';
 import { haptic } from './utils/haptics';
 import { BookmarkCheck, Train, TrainFront, ChevronUp, ChevronDown, Sparkles, X } from 'lucide-react';
 import { CURRENT_VERSION } from './data/versionHistory';
@@ -282,6 +299,88 @@ export default function App() {
     } catch {}
   };
 
+  // Global Admin-Measured Segment Travel Times
+  const [travelTimeOverrides, setTravelTimeOverrides] = useState<TravelTimeOverridesMap>(() => {
+    const initial = getLocalCachedTravelTimes();
+    setGlobalTravelTimeOverrides(initial);
+    return initial;
+  });
+
+  useEffect(() => {
+    let isMounted = true;
+    fetchTravelTimes().then((map) => {
+      if (isMounted) {
+        setGlobalTravelTimeOverrides(map);
+        setTravelTimeOverrides(map);
+      }
+    });
+
+    const unsubscribe = subscribeToTravelTimes((liveMap) => {
+      if (isMounted) {
+        setGlobalTravelTimeOverrides(liveMap);
+        setTravelTimeOverrides(liveMap);
+      }
+    });
+
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
+  }, []);
+
+  // Active Journey Tracker (Ride Mode) State
+  const [activeRide, setActiveRide] = useState<ActiveRideState | null>(null);
+  const [isStatusWindowOpen, setIsStatusWindowOpen] = useState<boolean>(false);
+
+  const handleStartRide = (route: RouteOption) => {
+    const steps = buildRideSteps(route, travelTimeOverrides);
+    if (steps.length === 0) return;
+    haptic.routeCalculated();
+    setActiveRide({
+      id: `ride-${Date.now()}`,
+      route,
+      steps,
+      currentStepIndex: 0,
+      isMinimized: false,
+      startedAt: Date.now(),
+      loggingEnabled: false,
+      loggingStatus: 'idle',
+      segmentTimerStartedAt: null,
+      measuredSegments: [],
+      showComparisonModal: false,
+    });
+  };
+
+  const handleMinimizeRide = () => {
+    setActiveRide((prev) => (prev ? { ...prev, isMinimized: true } : null));
+  };
+
+  const handleOpenActiveRide = () => {
+    setActiveRide((prev) => (prev ? { ...prev, isMinimized: false } : null));
+  };
+
+  const handleEndRide = () => {
+    setActiveRide(null);
+  };
+
+  const handleConfirmSaveTravelTimes = async (logs: MeasuredSegmentLog[]) => {
+    if (!isAdmin || logs.length === 0) return;
+    const updatedMap = await saveLineTravelTimes(
+      logs.map((l) => ({
+        lineId: l.lineId,
+        fromStationId: l.fromStationId,
+        toStationId: l.toStationId,
+        durationSeconds: l.newDurationSeconds,
+      })),
+      'abc123'
+    );
+    setGlobalTravelTimeOverrides(updatedMap);
+    setTravelTimeOverrides(updatedMap);
+    setActiveRide(null);
+    haptic.success();
+    showToast(translations[language].travelTimesUpdatedSuccess);
+  };
+
   // Disruptions live state (persisted locally and synced with server)
   const [disruptions, setDisruptions] = useState<Disruption[]>(getLocalCachedDisruptions);
   const [avoidDisruptions, setAvoidDisruptions] = useState<boolean>(() => {
@@ -443,14 +542,15 @@ export default function App() {
     setActiveTab('lines');
   };
 
-  // Manual Data Refresh (Check for new disruptions & articles)
+  // Manual Data Refresh (Check for new disruptions, articles & travel times)
   const handleRefreshData = async () => {
     setIsRefreshingData(true);
     haptic.selection();
     try {
-      const [freshDisruptions, freshArticles] = await Promise.all([
+      const [freshDisruptions, freshArticles, freshTravelTimes] = await Promise.all([
         fetchDisruptions(),
         fetchArticles(),
+        fetchTravelTimes(),
       ]);
       setDisruptions(freshDisruptions);
       setUserConfirmedIds(getUserConfirmedIds());
@@ -458,6 +558,8 @@ export default function App() {
       if (freshArticles && freshArticles.length > 0) {
         setArticles(freshArticles);
       }
+      setGlobalTravelTimeOverrides(freshTravelTimes);
+      setTravelTimeOverrides(freshTravelTimes);
       haptic.success();
       const count = freshDisruptions.filter((d) => d.isActive).length;
       showToast(
@@ -510,7 +612,7 @@ export default function App() {
     };
   }, []);
 
-  // Recalculate routes ONLY when preference or disruption avoidance changes AND a route has already been calculated
+  // Recalculate routes ONLY when preference, disruption avoidance, or global travel times change AND a route has already been calculated
   useEffect(() => {
     if (hasCalculatedRoute && originId && destinationId && originId !== destinationId) {
       const calculated = findRoutesWithStopover(
@@ -519,12 +621,21 @@ export default function App() {
         destinationId,
         preference,
         avoidDisruptions ? disruptions : [],
-        disruptions
+        disruptions,
+        travelTimeOverrides
       );
       setRoutes(calculated);
-      setActiveRoute(calculated[0] || null);
+      setActiveRoute((prevActive) => {
+        if (!prevActive) return calculated[0] || null;
+        const matched = calculated.find(
+          (r) =>
+            r.linesUsed.join('-') === prevActive.linesUsed.join('-') &&
+            r.pathStationIds.join('-') === prevActive.pathStationIds.join('-')
+        );
+        return matched || calculated[0] || null;
+      });
     }
-  }, [preference, avoidDisruptions, disruptions]);
+  }, [preference, avoidDisruptions, disruptions, travelTimeOverrides]);
 
   // Explicit calculation upon button press (does NOT calculate automatically when entering destination)
   const handleCalculateRoute = () => {
@@ -548,7 +659,8 @@ export default function App() {
       destinationId,
       preference,
       avoidDisruptions ? disruptions : [],
-      disruptions
+      disruptions,
+      travelTimeOverrides
     );
     setRoutes(calculated);
     const topRoute = calculated[0] || null;
@@ -594,7 +706,8 @@ export default function App() {
         destinationId,
         preference,
         avoidDisruptions ? disruptions : [],
-        disruptions
+        disruptions,
+        travelTimeOverrides
       );
       setRoutes(calculated);
       const topRoute = calculated[0] || null;
@@ -615,7 +728,8 @@ export default function App() {
         stId,
         preference,
         avoidDisruptions ? disruptions : [],
-        disruptions
+        disruptions,
+        travelTimeOverrides
       );
       setRoutes(calculated);
       const topRoute = calculated[0] || null;
@@ -656,7 +770,8 @@ export default function App() {
         destinationId,
         preference,
         avoidDisruptions ? disruptions : [],
-        disruptions
+        disruptions,
+        travelTimeOverrides
       );
       setRoutes(calculated);
       setActiveRoute(calculated[0] || null);
@@ -678,7 +793,8 @@ export default function App() {
         temp,
         preference,
         avoidDisruptions ? disruptions : [],
-        disruptions
+        disruptions,
+        travelTimeOverrides
       );
       setRoutes(calculated);
       setActiveRoute(calculated[0] || null);
@@ -703,7 +819,8 @@ export default function App() {
           destinationId,
           preference,
           avoidDisruptions ? disruptions : [],
-          disruptions
+          disruptions,
+          travelTimeOverrides
         );
         setRoutes(calculated);
         setActiveRoute(calculated[0] || null);
@@ -737,7 +854,8 @@ export default function App() {
       recent.destinationId,
       preference,
       avoidDisruptions ? disruptions : [],
-      disruptions
+      disruptions,
+      travelTimeOverrides
     );
     setRoutes(calculated);
     setActiveRoute(calculated[0] || null);
@@ -920,7 +1038,8 @@ export default function App() {
       journey.destinationId,
       preference,
       [],
-      disruptions
+      disruptions,
+      travelTimeOverrides
     );
     setRoutes(calculated);
     setActiveRoute(calculated[0] || null);
@@ -980,6 +1099,9 @@ export default function App() {
           activeTab={activeTab}
           onNavigateToTab={setActiveTab}
           disruptions={disruptions}
+          hasMinimizedActiveRide={Boolean(activeRide && activeRide.isMinimized)}
+          onOpenActiveRide={handleOpenActiveRide}
+          onStatusWindowOpenChange={setIsStatusWindowOpen}
         />
       ) : (
         <Header
@@ -989,6 +1111,9 @@ export default function App() {
           activeTab={activeTab}
           disruptions={disruptions}
           onNavigateToTab={setActiveTab}
+          hasMinimizedActiveRide={Boolean(activeRide && activeRide.isMinimized)}
+          onOpenActiveRide={handleOpenActiveRide}
+          onStatusWindowOpenChange={setIsStatusWindowOpen}
         />
       )}
 
@@ -1133,6 +1258,10 @@ export default function App() {
                   onDeleteRecentRoute={handleDeleteRecentRoute}
                   onClearRecentRoutes={handleClearRecentRoutes}
                   onRestoreLastEntry={handleRestoreLastEntry}
+                  isAdmin={isAdmin}
+                  activeRideId={activeRide?.route.id || null}
+                  onStartRide={handleStartRide}
+                  onOpenActiveRide={handleOpenActiveRide}
                 />
               ) : (
                 <TripPlanner
@@ -1163,6 +1292,10 @@ export default function App() {
                   onDeleteRecentRoute={handleDeleteRecentRoute}
                   onClearRecentRoutes={handleClearRecentRoutes}
                   onRestoreLastEntry={handleRestoreLastEntry}
+                  isAdmin={isAdmin}
+                  activeRideId={activeRide?.route.id || null}
+                  onStartRide={handleStartRide}
+                  onOpenActiveRide={handleOpenActiveRide}
                 />
               )}
             </motion.div>
@@ -1214,6 +1347,9 @@ export default function App() {
                 isAdmin={isAdmin}
                 onEditDisruption={handleOpenEditDisruption}
                 onDeleteDisruption={handleDeleteDisruption}
+                activeRide={activeRide}
+                onOpenActiveRide={handleOpenActiveRide}
+                travelTimeOverrides={travelTimeOverrides}
               />
             </motion.div>
           )}
@@ -1239,6 +1375,7 @@ export default function App() {
                   isAdmin={isAdmin}
                   onEditDisruption={handleOpenEditDisruption}
                   onDeleteDisruption={handleDeleteDisruption}
+                  travelTimeOverrides={travelTimeOverrides}
                   onSelectStation={() => {
                     setActiveTab('map');
                   }}
@@ -1263,6 +1400,7 @@ export default function App() {
                   isAdmin={isAdmin}
                   onEditDisruption={handleOpenEditDisruption}
                   onDeleteDisruption={handleDeleteDisruption}
+                  travelTimeOverrides={travelTimeOverrides}
                   onSelectStation={() => {
                     setActiveTab('map');
                   }}
@@ -1370,13 +1508,32 @@ export default function App() {
         onEditSubmit={handleSaveEditDisruption}
       />
 
-      {/* Bottom iOS Navigation Bar */}
-      <TabBar
-        language={language}
-        activeTab={activeTab}
-        onChangeTab={setActiveTab}
-        tabBarStyle={tabBarStyle}
-      />
+      {/* Active Journey Tracker / Ride Mode Modal */}
+      <AnimatePresence>
+        {activeRide && !activeRide.isMinimized && (
+          <RideModeModal
+            language={language}
+            rideState={activeRide}
+            isAdmin={isAdmin}
+            travelTimeOverrides={travelTimeOverrides}
+            onMinimize={handleMinimizeRide}
+            onEndRide={handleEndRide}
+            onViewOnMap={handleViewOnMap}
+            onUpdateRideState={setActiveRide}
+            onConfirmSaveTravelTimes={handleConfirmSaveTravelTimes}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Bottom iOS Navigation Bar (hidden while Active Ride, Alert/Time, or Startup Disruption windows are open) */}
+      {!(Boolean(activeRide && !activeRide.isMinimized) || isStatusWindowOpen || showStartupOverview) && (
+        <TabBar
+          language={language}
+          activeTab={activeTab}
+          onChangeTab={setActiveTab}
+          tabBarStyle={tabBarStyle}
+        />
+      )}
     </div>
   );
 }

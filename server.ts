@@ -27,6 +27,7 @@ app.use(express.json());
 const DATA_DIR = path.join(__dirname, 'data');
 const DISRUPTIONS_FILE = path.join(DATA_DIR, 'disruptions.json');
 const ARTICLES_FILE = path.join(DATA_DIR, 'articles.json');
+const TRAVEL_TIMES_FILE = path.join(DATA_DIR, 'travel_times.json');
 
 // Ensure data directory exists
 if (!fs.existsSync(DATA_DIR)) {
@@ -110,6 +111,39 @@ function saveDisruptions(disruptions: StoredDisruption[]) {
 
 // In-memory cache synced with disk
 let disruptionsCache: StoredDisruption[] = loadDisruptions();
+
+export interface StoredSegmentTravelTime {
+  id: string;
+  lineId: string;
+  fromStationId: string;
+  toStationId: string;
+  durationSeconds: number;
+  durationMinutes: number;
+  updatedAt: number;
+}
+
+function loadTravelTimes(): Record<string, StoredSegmentTravelTime> {
+  try {
+    if (fs.existsSync(TRAVEL_TIMES_FILE)) {
+      const data = fs.readFileSync(TRAVEL_TIMES_FILE, 'utf-8');
+      const parsed = JSON.parse(data);
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    }
+  } catch (err) {
+    console.error('Error reading travel times file:', err);
+  }
+  return {};
+}
+
+function saveTravelTimes(map: Record<string, StoredSegmentTravelTime>) {
+  try {
+    fs.writeFileSync(TRAVEL_TIMES_FILE, JSON.stringify(map, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('Error saving travel times file:', err);
+  }
+}
+
+let travelTimesCache: Record<string, StoredSegmentTravelTime> = loadTravelTimes();
 
 // --- API ROUTES ---
 
@@ -360,6 +394,59 @@ app.delete('/api/articles/:id', (req, res) => {
   res.json({
     success: true,
     removedId: id,
+  });
+});
+
+// --- TRAVEL TIMES API ROUTES ---
+
+// 10. Get all measured segment travel time overrides
+app.get('/api/travel-times', (_req, res) => {
+  travelTimesCache = loadTravelTimes();
+  res.json({
+    success: true,
+    travelTimes: Object.values(travelTimesCache),
+    travelTimesMap: travelTimesCache,
+  });
+});
+
+// 11. Save / overwrite measured segment travel times (admin only)
+app.post('/api/travel-times', (req, res) => {
+  const { segments, adminCode } = req.body;
+
+  if (adminCode !== 'abc123') {
+    res.status(403).json({ success: false, error: 'Unauthorized: Invalid admin code' });
+    return;
+  }
+
+  if (!Array.isArray(segments) || segments.length === 0) {
+    res.status(400).json({ success: false, error: 'Segments array is required' });
+    return;
+  }
+
+  travelTimesCache = loadTravelTimes();
+  const now = Date.now();
+
+  for (const seg of segments) {
+    if (!seg || !seg.id || !seg.lineId || !seg.fromStationId || !seg.toStationId) continue;
+    const durationSeconds = Math.min(3600, Math.max(1, Math.round(Number(seg.durationSeconds) || 1)));
+    const durationMinutes = Math.min(60, Math.max(0.1, Number((durationSeconds / 60).toFixed(1))));
+    travelTimesCache[seg.id] = {
+      id: String(seg.id),
+      lineId: String(seg.lineId),
+      fromStationId: String(seg.fromStationId),
+      toStationId: String(seg.toStationId),
+      durationSeconds,
+      durationMinutes,
+      updatedAt: typeof seg.updatedAt === 'number' ? seg.updatedAt : now,
+    };
+  }
+
+  saveTravelTimes(travelTimesCache);
+
+  res.json({
+    success: true,
+    travelTimes: Object.values(travelTimesCache),
+    travelTimesMap: travelTimesCache,
   });
 });
 
