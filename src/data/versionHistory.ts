@@ -19,14 +19,39 @@ export interface VersionEntry {
  * y = Addition of minor features and general enhancements (incremented upwards)
  * z = Small bug fixes, performance improvements, and minor adjustments (incremented upwards)
  */
-export const CURRENT_VERSION = '0.4.5';
+export const CURRENT_VERSION = '0.5.0';
 
 export const VERSION_HISTORY: VersionEntry[] = [
+  {
+    version: '0.5.0',
+    date: '14.11.2026',
+    type: 'minor',
+    isLatest: true,
+    title: 'Map Highlight Lag Elimination & Glow Toggle Setting',
+    titleDe: 'Netzkarte: Maximale Framerate & Leuchteffekt-Option',
+    summary:
+      'Eliminated pan & zoom framerate drops when selecting stations or lines on the network map, and added an optional Highlight Glow setting (disabled by default).',
+    summaryDe:
+      'Behebung der Ruckler beim Zoomen und Verschieben der Netzkarte bei ausgewählten Stationen oder Linien sowie neue Einstellung für den Leuchteffekt (standardmäßig deaktiviert).',
+    changes: [
+      'Added "Map Highlight Glow Effect" toggle in Settings (turned off by default for maximum FPS; can be manually enabled).',
+      'Replaced heavy SVG Gaussian blur filters on highlighted lines, stations, active routes, and disruption tracks with crisp zero-overhead vector highlighting when Glow is off.',
+      'Rebuilt map pan, wheel-zoom, and pinch-to-zoom around direct SVG viewBox updates inside requestAnimationFrame with zero React re-renders per frame.',
+      'Eliminated heavy GPU backdrop-blur-2xl re-convolution over the map canvas on open Station, Line, and Disruption info sheets.',
+      'Memoized station search/layer filters and removed redundant SVG hover and CSS transition recalculations during active map drags.',
+    ],
+    changesDe: [
+      'Neue Option „Leuchteffekt auf Netzkarte (Glow)“ in den Einstellungen hinzugefügt (standardmäßig deaktiviert für höchste Framerate, manuell einschaltbar).',
+      'Aufwändige SVG-Gaussian-Blur-Filter auf hervorgehobenen Linien, Stationen, Routen und Störungsstrecken entfernt, wenn der Leuchteffekt aus ist.',
+      'Karten-Verschieben, Mausrad-Zoom und Pinch-Zoom auf direkte SVG-viewBox-Updates in requestAnimationFrame ohne React-Re-Renders pro Frame umgestellt.',
+      'Schwere GPU-Backdrop-Blur-Effekte auf offenen Stations-, Linien- und Störungsfenstern über der Karte für flüssiges Scrollen und Zoomen beseitigt.',
+      'Stations- & Suchfilter memoisiert sowie überflüssige SVG-Hover- und CSS-Übergangs-Neuberechnungen beim Ziehen der Karte entfernt.',
+    ],
+  },
   {
     version: '0.4.5',
     date: '29.10.2026',
     type: 'patch',
-    isLatest: true,
     title: 'Modern Minecraft UI, Header Time & Version History System',
     titleDe: 'Modernes Minecraft UI, Header-Uhrzeit & Versionsverlauf-System',
     summary:
@@ -216,13 +241,13 @@ export const VERSION_HISTORY: VersionEntry[] = [
     changes: [
       'Firestore real-time cloud database integration for instant cross-device disruption synchronization.',
       'Community verification endorsements and auto-resolution after 10 user resolved reports.',
-      'Admin verification code ("abc123") unlocking news and tutorial publishing on the Home page.',
+      'Admin authorization system unlocking news and tutorial article publishing on the Home page.',
       'Startup disruption notification modal alerting users to ongoing network alerts upon launch.',
     ],
     changesDe: [
       'Firestore Echtzeit-Cloud-Datenbank für sekundenschnelle Synchronisation zwischen allen Geräten.',
       'Community-Bestätigungen für Störungen und automatische Löschung nach 10 Behebungs-Meldungen.',
-      'Admin-Code („abc123“) zum Verfassen von News-Artikeln und Anleitungen auf der Startseite.',
+      'Admin-Autorisierungssystem zum Verfassen von News-Artikeln und Anleitungen auf der Startseite.',
       'Start-Übersichtsfenster informiert beim Öffnen der App direkt über alle aktiven Störungen.',
     ],
   },

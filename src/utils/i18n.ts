@@ -237,6 +237,8 @@ export interface Translations {
   reportedDisruptionsForLine: string;
   noDisruptionsForStation: string;
   noDisruptionsForLine: string;
+  mapHighlightGlow: string;
+  mapHighlightGlowDesc: string;
 }
 
 export const translations: Record<Language, Translations> = {
@@ -477,6 +479,8 @@ export const translations: Record<Language, Translations> = {
     reportedDisruptionsForLine: 'Gemeldete Störungen auf dieser Linie',
     noDisruptionsForStation: 'Keine Störungen an dieser Station gemeldet',
     noDisruptionsForLine: 'Keine Störungen auf dieser Linie gemeldet',
+    mapHighlightGlow: 'Leuchteffekt auf Netzkarte (Glow)',
+    mapHighlightGlowDesc: 'Aktiviert einen weichen Leuchteffekt um hervorgehobene Linien und Stationen. Standardmäßig deaktiviert für maximale Framerate beim Zoomen und Verschieben.',
   },
   en: {
     appName: 'MetroFlow',
@@ -715,6 +719,8 @@ export const translations: Record<Language, Translations> = {
     reportedDisruptionsForLine: 'Reported disruptions on this line',
     noDisruptionsForStation: 'No disruptions reported at this station',
     noDisruptionsForLine: 'No disruptions reported on this line',
+    mapHighlightGlow: 'Map Highlight Glow Effect',
+    mapHighlightGlowDesc: 'Adds a soft glow effect around highlighted lines and stations. Disabled by default for maximum pan & zoom performance.',
   },
 };
 

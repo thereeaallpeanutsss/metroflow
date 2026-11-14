@@ -361,6 +361,22 @@ export default function App() {
     } catch {}
   };
 
+  // Highlight glow effect around lines and stations on map (OFF by default for max FPS)
+  const [mapHighlightGlowEnabled, setMapHighlightGlowEnabled] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('metroflow_map_highlight_glow') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const handleToggleMapHighlightGlow = (enabled: boolean) => {
+    setMapHighlightGlowEnabled(enabled);
+    try {
+      localStorage.setItem('metroflow_map_highlight_glow', String(enabled));
+    } catch {}
+  };
+
   const [routes, setRoutes] = useState<RouteOption[]>([]);
   const [activeRoute, setActiveRoute] = useState<RouteOption | null>(null);
   const [activeLineFilter, setActiveLineFilter] = useState<LineId | 'ALL'>('ALL');
@@ -1192,6 +1208,7 @@ export default function App() {
                 onConfirmDisruption={handleConfirmDisruption}
                 onReportResolved={handleReportResolved}
                 routePlanningEnabled={mapRoutePlanningEnabled}
+                highlightGlowEnabled={mapHighlightGlowEnabled}
                 onNavigateToPlanner={handleNavigateToPlanner}
                 onResetRoute={handleResetRoute}
                 isAdmin={isAdmin}
@@ -1284,6 +1301,8 @@ export default function App() {
                   onDeleteSavedJourney={handleDeleteSavedJourney}
                   mapRoutePlanningEnabled={mapRoutePlanningEnabled}
                   onToggleMapRoutePlanning={handleToggleMapRoutePlanning}
+                  mapHighlightGlowEnabled={mapHighlightGlowEnabled}
+                  onToggleMapHighlightGlow={handleToggleMapHighlightGlow}
                   isAdmin={isAdmin}
                   onToggleAdmin={handleToggleAdmin}
                   tabBarStyle={tabBarStyle}
@@ -1308,6 +1327,8 @@ export default function App() {
                   onDeleteSavedJourney={handleDeleteSavedJourney}
                   mapRoutePlanningEnabled={mapRoutePlanningEnabled}
                   onToggleMapRoutePlanning={handleToggleMapRoutePlanning}
+                  mapHighlightGlowEnabled={mapHighlightGlowEnabled}
+                  onToggleMapHighlightGlow={handleToggleMapHighlightGlow}
                   isAdmin={isAdmin}
                   onToggleAdmin={handleToggleAdmin}
                   tabBarStyle={tabBarStyle}

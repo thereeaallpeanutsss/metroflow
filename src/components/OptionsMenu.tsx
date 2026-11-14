@@ -44,6 +44,8 @@ interface OptionsMenuProps {
   onDeleteSavedJourney: (journeyId: string) => void;
   mapRoutePlanningEnabled: boolean;
   onToggleMapRoutePlanning: (enabled: boolean) => void;
+  mapHighlightGlowEnabled?: boolean;
+  onToggleMapHighlightGlow?: (enabled: boolean) => void;
   isAdmin: boolean;
   onToggleAdmin: (isAdmin: boolean) => void;
   tabBarStyle: TabBarStyle;
@@ -68,6 +70,8 @@ export const OptionsMenu: React.FC<OptionsMenuProps> = ({
   onDeleteSavedJourney,
   mapRoutePlanningEnabled,
   onToggleMapRoutePlanning,
+  mapHighlightGlowEnabled = false,
+  onToggleMapHighlightGlow,
   isAdmin,
   onToggleAdmin,
   tabBarStyle,
@@ -586,6 +590,56 @@ export const OptionsMenu: React.FC<OptionsMenuProps> = ({
           </span>
         </div>
       </div>
+
+      {/* Map Highlight Glow Effect Setting Toggle (Off by default for max FPS) */}
+      {onToggleMapHighlightGlow && (
+        <div className="p-4 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-sm font-semibold text-slate-800 dark:text-slate-200">
+              <Sparkles className="w-4 h-4 text-amber-500" />
+              <span>{t.mapHighlightGlow}</span>
+            </div>
+
+            <button
+              onClick={() => {
+                haptic.medium();
+                onToggleMapHighlightGlow(!mapHighlightGlowEnabled);
+              }}
+              className={`w-12 h-7 rounded-full transition-colors relative p-1 cursor-pointer focus:outline-none ${
+                mapHighlightGlowEnabled ? 'bg-amber-500' : 'bg-slate-300 dark:bg-slate-700'
+              }`}
+              title={t.mapHighlightGlow}
+            >
+              <div
+                className={`w-5 h-5 rounded-full bg-white shadow-md transition-transform ${
+                  mapHighlightGlowEnabled ? 'translate-x-5' : 'translate-x-0'
+                }`}
+              />
+            </button>
+          </div>
+
+          <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+            {t.mapHighlightGlowDesc}
+          </p>
+
+          <div className="pt-1 flex items-center gap-1.5 text-[11px] font-medium text-slate-600 dark:text-slate-300">
+            <span
+              className={`w-2 h-2 rounded-full ${
+                mapHighlightGlowEnabled ? 'bg-amber-500' : 'bg-emerald-500'
+              }`}
+            />
+            <span>
+              {mapHighlightGlowEnabled
+                ? language === 'de'
+                  ? 'Aktiviert: Leuchteffekt um hervorgehobene Linien & Stationen'
+                  : 'Enabled: Soft glow around highlighted lines & stations'
+                : language === 'de'
+                  ? 'Deaktiviert (Standard): Klare Hervorhebung für höchste Framerate'
+                  : 'Disabled (Default): Crisp highlight for highest framerate'}
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* Saved Journeys Menu */}
       <div className="p-4 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl space-y-3">

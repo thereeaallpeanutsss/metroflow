@@ -63,6 +63,7 @@ interface InteractiveMapProps {
   onConfirmDisruption?: (id: string) => void;
   onReportResolved?: (id: string) => Promise<void>;
   routePlanningEnabled?: boolean;
+  highlightGlowEnabled?: boolean;
   onNavigateToPlanner?: () => void;
   onResetRoute?: () => void;
   isAdmin?: boolean;
@@ -95,6 +96,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
   onConfirmDisruption,
   onReportResolved,
   routePlanningEnabled = true,
+  highlightGlowEnabled = false,
   onNavigateToPlanner,
   onResetRoute,
   isAdmin = false,
@@ -116,11 +118,15 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
 
   const isMobile = windowWidth < 768;
 
-  // Optimized mobile defaults: cleanly center the network and use screen space efficiently
-  const [zoom, setZoom] = useState(() => (typeof window !== 'undefined' && window.innerWidth < 768 ? 1 : 1));
-  const [pan, setPan] = useState(() => ({ x: 0, y: 0 }));
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  // Live viewport refs for zero-React-rerender 60-120fps pan & zoom
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const zoomRef = useRef<number>(1);
+  const panRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const isDraggingRef = useRef<boolean>(false);
+  const dragStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const svgRef = useRef<SVGSVGElement>(null);
+
   const [hoveredStationId, setHoveredStationId] = useState<string | null>(null);
   const [clickedStationId, setClickedStationId] = useState<string | null>(null);
   const [clickedLineId, setClickedLineId] = useState<LineId | null>(null);
@@ -137,7 +143,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
   const [isDisruptionCardCollapsed, setIsDisruptionCardCollapsed] = useState(false);
 
   // Independent smoothly draggable info card state
-  const [isInfoCardDragging, setIsInfoCardDragging] = useState(false);
+  const isInfoCardDraggingRef = useRef(false);
   const dragMovedRef = useRef(false);
 
   const clickedLine = clickedLineId ? METRO_LINES[clickedLineId] : null;
@@ -172,6 +178,8 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
     width: typeof window !== 'undefined' ? window.innerWidth : 1024,
     height: 600,
   });
+  const containerSizeRef = useRef(containerSize);
+  containerSizeRef.current = containerSize;
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -179,7 +187,9 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
     const updateSize = () => {
       const rect = el.getBoundingClientRect();
       if (rect.width > 0 && rect.height > 0) {
-        setContainerSize({ width: rect.width, height: rect.height });
+        const next = { width: rect.width, height: rect.height };
+        containerSizeRef.current = next;
+        setContainerSize(next);
       }
     };
     updateSize();
@@ -188,16 +198,14 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
     return () => ro.disconnect();
   }, []);
 
-  // Compute subpixel-crisp SVG viewBox dynamically so the browser vector engine
-  // renders paths directly onto the physical Retina display without bitmap scaling
-  const svgViewBox = useMemo(() => {
-    const baseScale = Math.min(containerSize.width / BASE_MAP_W, containerSize.height / BASE_MAP_H) || 1;
-    const effectiveScale = baseScale * zoom;
-    const svgPanX = pan.x / effectiveScale;
-    const svgPanY = pan.y / effectiveScale;
+  const computeSvgViewBox = (width: number, height: number, z: number, p: { x: number; y: number }) => {
+    const baseScale = Math.min(width / BASE_MAP_W, height / BASE_MAP_H) || 1;
+    const effectiveScale = baseScale * z;
+    const svgPanX = p.x / effectiveScale;
+    const svgPanY = p.y / effectiveScale;
 
-    const visibleW = BASE_MAP_W / zoom;
-    const visibleH = BASE_MAP_H / zoom;
+    const visibleW = BASE_MAP_W / z;
+    const visibleH = BASE_MAP_H / z;
 
     const centerX = MAP_CENTER_X - svgPanX;
     const centerY = MAP_CENTER_Y - svgPanY;
@@ -206,13 +214,18 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
     const minY = centerY - visibleH / 2;
 
     return `${minX.toFixed(2)} ${minY.toFixed(2)} ${visibleW.toFixed(2)} ${visibleH.toFixed(2)}`;
+  };
+
+  // Initial / React-synced viewBox string
+  const svgViewBox = useMemo(() => {
+    return computeSvgViewBox(containerSize.width, containerSize.height, zoom, pan);
   }, [containerSize.width, containerSize.height, zoom, pan.x, pan.y]);
 
   // Boundary constraints so user can never drag or pinch far away from the contents of the map
   const clampPan = (px: number, py: number, currentZoom: number) => {
     const container = containerRef.current;
-    const w = container?.clientWidth || windowWidth;
-    const h = container?.clientHeight || 600;
+    const w = container?.clientWidth || containerSizeRef.current.width || windowWidth;
+    const h = container?.clientHeight || containerSizeRef.current.height || 600;
 
     // Keep at least a generous portion of the network within viewport, allowing full panning to edges on mobile
     const extraMobileX = isMobile ? w * 0.45 : w * 0.22;
@@ -226,55 +239,38 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
     };
   };
 
-  // Zoom centered on the center of what is on your screen (or pointer focal point)
-  const zoomToPoint = (
-    nextZoomOrFn: number | ((prev: number) => number),
-    focalPoint?: { x: number; y: number }
-  ) => {
-    setZoom((prevZoom) => {
-      const nextZoomRaw = typeof nextZoomOrFn === 'function' ? nextZoomOrFn(prevZoom) : nextZoomOrFn;
-      const minZoom = isMobile ? 0.75 : 0.75;
-      const maxZoom = 3.2;
-      const nextZoom = Math.min(Math.max(nextZoomRaw, minZoom), maxZoom);
+  // Animation frame coalescing: updates SVG viewBox directly on DOM node for zero-React-rerender 60-120fps
+  const rafIdRef = useRef<number | null>(null);
+  const pendingViewportRef = useRef<{ zoom: number; pan: { x: number; y: number } } | null>(null);
+  const wheelSyncTimerRef = useRef<number | null>(null);
 
-      if (nextZoom === prevZoom) return prevZoom;
-
-      const zoomRatio = nextZoom / prevZoom;
-
-      setPan((prevPan) => {
-        // focalPoint is relative to container center. When zooming on screen center, focalPoint is (0, 0)!
-        const fx = focalPoint ? focalPoint.x : 0;
-        const fy = focalPoint ? focalPoint.y : 0;
-
-        // Keep the focal point invariant under scaling:
-        const newX = prevPan.x * zoomRatio + fx * (1 - zoomRatio);
-        const newY = prevPan.y * zoomRatio + fy * (1 - zoomRatio);
-
-        return clampPan(newX, newY, nextZoom);
-      });
-
-      return nextZoom;
-    });
+  const applyViewportDirect = (nextZoom: number, nextPan: { x: number; y: number }) => {
+    zoomRef.current = nextZoom;
+    panRef.current = nextPan;
+    if (svgRef.current) {
+      svgRef.current.setAttribute(
+        'viewBox',
+        computeSvgViewBox(containerSizeRef.current.width, containerSizeRef.current.height, nextZoom, nextPan)
+      );
+    }
   };
 
-  // Touch handling for pinch-to-zoom
-  const touchStartDistRef = useRef<number | null>(null);
-  const touchStartZoomRef = useRef<number>(1);
-  const touchStartPanRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
-  const touchStartFocalRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const syncViewportToReact = () => {
+    setZoom(zoomRef.current);
+    setPan(panRef.current);
+  };
 
-  // Animation frame coalescing to guarantee 60-120fps stutter-free panning & zooming
-  const rafIdRef = useRef<number | null>(null);
-  const pendingPanRef = useRef<{ x: number; y: number } | null>(null);
-
-  const schedulePanUpdate = (newPan: { x: number; y: number }) => {
-    pendingPanRef.current = newPan;
+  const scheduleViewportUpdate = (nextZoom: number, nextPan: { x: number; y: number }) => {
+    // Update live refs immediately so rapid consecutive wheel/move events accumulate accurately
+    zoomRef.current = nextZoom;
+    panRef.current = nextPan;
+    pendingViewportRef.current = { zoom: nextZoom, pan: nextPan };
     if (rafIdRef.current === null) {
       rafIdRef.current = requestAnimationFrame(() => {
         rafIdRef.current = null;
-        if (pendingPanRef.current) {
-          setPan(pendingPanRef.current);
-          pendingPanRef.current = null;
+        if (pendingViewportRef.current) {
+          applyViewportDirect(pendingViewportRef.current.zoom, pendingViewportRef.current.pan);
+          pendingViewportRef.current = null;
         }
       });
     }
@@ -285,19 +281,60 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
       if (rafIdRef.current !== null) {
         cancelAnimationFrame(rafIdRef.current);
       }
+      if (wheelSyncTimerRef.current !== null) {
+        window.clearTimeout(wheelSyncTimerRef.current);
+      }
     };
   }, []);
 
+  // Zoom centered on the center of what is on your screen (or pointer focal point)
+  const zoomToPoint = (
+    nextZoomOrFn: number | ((prev: number) => number),
+    focalPoint?: { x: number; y: number },
+    immediateSync: boolean = true
+  ) => {
+    const prevZoom = zoomRef.current;
+    const prevPan = panRef.current;
+    const nextZoomRaw = typeof nextZoomOrFn === 'function' ? nextZoomOrFn(prevZoom) : nextZoomOrFn;
+    const minZoom = 0.75;
+    const maxZoom = 3.2;
+    const nextZoom = Math.min(Math.max(nextZoomRaw, minZoom), maxZoom);
+
+    if (nextZoom === prevZoom) return;
+
+    const zoomRatio = nextZoom / prevZoom;
+    const fx = focalPoint ? focalPoint.x : 0;
+    const fy = focalPoint ? focalPoint.y : 0;
+    const newX = prevPan.x * zoomRatio + fx * (1 - zoomRatio);
+    const newY = prevPan.y * zoomRatio + fy * (1 - zoomRatio);
+    const nextPan = clampPan(newX, newY, nextZoom);
+
+    if (immediateSync) {
+      applyViewportDirect(nextZoom, nextPan);
+      setZoom(nextZoom);
+      setPan(nextPan);
+    } else {
+      scheduleViewportUpdate(nextZoom, nextPan);
+    }
+  };
+
+  // Touch handling for pinch-to-zoom
+  const touchStartDistRef = useRef<number | null>(null);
+  const touchStartZoomRef = useRef<number>(1);
+  const touchStartPanRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const touchStartFocalRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+
   const handleZoomIn = () => {
     haptic.selection();
-    zoomToPoint((prev) => prev + 0.25);
+    zoomToPoint((prev) => prev + 0.25, undefined, true);
   };
   const handleZoomOut = () => {
     haptic.selection();
-    zoomToPoint((prev) => prev - 0.25);
+    zoomToPoint((prev) => prev - 0.25, undefined, true);
   };
   const handleReset = () => {
     haptic.medium();
+    applyViewportDirect(1, { x: 0, y: 0 });
     setZoom(1);
     setPan({ x: 0, y: 0 });
     setClickedStationId(null);
@@ -313,10 +350,16 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
       const rect = container.getBoundingClientRect();
       const focalX = e.clientX - rect.left - rect.width / 2;
       const focalY = e.clientY - rect.top - rect.height / 2;
-      zoomToPoint((prev) => prev * factor, { x: focalX, y: focalY });
+      zoomToPoint((prev) => prev * factor, { x: focalX, y: focalY }, false);
     } else {
-      zoomToPoint((prev) => prev * factor);
+      zoomToPoint((prev) => prev * factor, undefined, false);
     }
+    if (wheelSyncTimerRef.current !== null) {
+      window.clearTimeout(wheelSyncTimerRef.current);
+    }
+    wheelSyncTimerRef.current = window.setTimeout(() => {
+      syncViewportToReact();
+    }, 150);
   };
 
   const isInteractiveUI = (target: EventTarget | null) => {
@@ -326,56 +369,61 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
 
   const handleMouseDown = (e: React.MouseEvent) => {
     if (e.button !== 0) return;
-    if (isInfoCardDragging || isInteractiveUI(e.target)) {
-      setIsDragging(false);
+    if (isInfoCardDraggingRef.current || isInteractiveUI(e.target)) {
+      isDraggingRef.current = false;
       return;
     }
-    setIsDragging(true);
-    setDragStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
+    isDraggingRef.current = true;
+    dragStartRef.current = { x: e.clientX - panRef.current.x, y: e.clientY - panRef.current.y };
   };
 
   const handleMouseMove = (e: React.MouseEvent) => {
-    if (isInfoCardDragging || isInteractiveUI(e.target)) {
-      if (isDragging) setIsDragging(false);
+    if (isInfoCardDraggingRef.current) {
+      isDraggingRef.current = false;
       return;
     }
-    if (!isDragging) return;
-    schedulePanUpdate(clampPan(e.clientX - dragStart.x, e.clientY - dragStart.y, zoom));
+    if (!isDraggingRef.current) return;
+    scheduleViewportUpdate(
+      zoomRef.current,
+      clampPan(e.clientX - dragStartRef.current.x, e.clientY - dragStartRef.current.y, zoomRef.current)
+    );
   };
 
   const handleMouseUp = () => {
-    setIsDragging(false);
+    if (!isDraggingRef.current) return;
+    isDraggingRef.current = false;
     if (rafIdRef.current !== null) {
       cancelAnimationFrame(rafIdRef.current);
       rafIdRef.current = null;
     }
-    if (pendingPanRef.current) {
-      setPan(pendingPanRef.current);
-      pendingPanRef.current = null;
+    if (pendingViewportRef.current) {
+      applyViewportDirect(pendingViewportRef.current.zoom, pendingViewportRef.current.pan);
+      pendingViewportRef.current = null;
     }
+    syncViewportToReact();
   };
 
   // Touch Events
   const handleTouchStart = (e: React.TouchEvent) => {
-    if (isInfoCardDragging || isInteractiveUI(e.target)) {
-      setIsDragging(false);
+    if (isInfoCardDraggingRef.current || isInteractiveUI(e.target)) {
+      isDraggingRef.current = false;
       return;
     }
     if (e.touches.length === 1) {
-      setIsDragging(true);
-      setDragStart({
-        x: e.touches[0].clientX - pan.x,
-        y: e.touches[0].clientY - pan.y,
-      });
+      isDraggingRef.current = true;
+      dragStartRef.current = {
+        x: e.touches[0].clientX - panRef.current.x,
+        y: e.touches[0].clientY - panRef.current.y,
+      };
     } else if (e.touches.length === 2) {
-      setIsDragging(false);
+      isDraggingRef.current = false;
       const dist = Math.hypot(
         e.touches[0].clientX - e.touches[1].clientX,
         e.touches[0].clientY - e.touches[1].clientY
       );
       touchStartDistRef.current = dist;
-      touchStartZoomRef.current = zoom;
-      touchStartPanRef.current = { ...pan };
+      touchStartZoomRef.current = zoomRef.current;
+      touchStartPanRef.current = { ...panRef.current };
       const container = containerRef.current;
       if (container) {
         const rect = container.getBoundingClientRect();
@@ -390,12 +438,15 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
   };
 
   const handleTouchMove = (e: React.TouchEvent) => {
-    if (isInfoCardDragging || isInteractiveUI(e.target)) {
-      if (isDragging) setIsDragging(false);
+    if (isInfoCardDraggingRef.current) {
+      isDraggingRef.current = false;
       return;
     }
-    if (e.touches.length === 1 && isDragging) {
-      schedulePanUpdate(clampPan(e.touches[0].clientX - dragStart.x, e.touches[0].clientY - dragStart.y, zoom));
+    if (e.touches.length === 1 && isDraggingRef.current) {
+      scheduleViewportUpdate(
+        zoomRef.current,
+        clampPan(e.touches[0].clientX - dragStartRef.current.x, e.touches[0].clientY - dragStartRef.current.y, zoomRef.current)
+      );
     } else if (e.touches.length === 2 && touchStartDistRef.current !== null) {
       const dist = Math.hypot(
         e.touches[0].clientX - e.touches[1].clientX,
@@ -425,22 +476,24 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
       const newPanX = currFocal.x - ratio * (focal.x - startPan.x);
       const newPanY = currFocal.y - ratio * (focal.y - startPan.y);
 
-      setZoom(nextZoom);
-      schedulePanUpdate(clampPan(newPanX, newPanY, nextZoom));
+      scheduleViewportUpdate(nextZoom, clampPan(newPanX, newPanY, nextZoom));
     }
   };
 
   const handleTouchEnd = () => {
-    setIsDragging(false);
+    const wasPinching = touchStartDistRef.current !== null;
+    if (!isDraggingRef.current && !wasPinching) return;
+    isDraggingRef.current = false;
     touchStartDistRef.current = null;
     if (rafIdRef.current !== null) {
       cancelAnimationFrame(rafIdRef.current);
       rafIdRef.current = null;
     }
-    if (pendingPanRef.current) {
-      setPan(pendingPanRef.current);
-      pendingPanRef.current = null;
+    if (pendingViewportRef.current) {
+      applyViewportDirect(pendingViewportRef.current.zoom, pendingViewportRef.current.pan);
+      pendingViewportRef.current = null;
     }
+    syncViewportToReact();
   };
 
   const handleStationClick = (e: React.MouseEvent | React.TouchEvent, stationId: string) => {
@@ -532,32 +585,36 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
     return disruptions.filter((d) => d.isActive && d.lineId === clickedLine.id);
   }, [clickedLine, disruptions]);
 
-  const matchingStations = searchQuery.trim()
-    ? Object.values(STATIONS).filter((st) => {
-        const q = searchQuery.toLowerCase().trim();
-        return (
+  const matchingStations = useMemo(() => {
+    const q = searchQuery.toLowerCase().trim();
+    if (!q) return [];
+    return Object.values(STATIONS)
+      .filter(
+        (st) =>
           st.name.toLowerCase().includes(q) ||
           st.id.toLowerCase().includes(q) ||
           st.lines.some((l) => l.toLowerCase().includes(q))
-        );
-      }).slice(0, 6)
-    : [];
+      )
+      .slice(0, 6);
+  }, [searchQuery]);
 
   // Filter stations to show based on showMetroLayer and showICLayer, or if on active journey
-  const visibleStations = Object.values(STATIONS).filter((st) => {
-    if (activeRoute && activeRoute.pathStationIds.includes(st.id)) return true;
-    if (st.id === 'kuhl-town') return true;
+  const visibleStations = useMemo(() => {
     const isICLine = (l: string) =>
       l.startsWith('IC') ||
       ['U-Türkis', 'U-Pink', 'U-Dunkelblau', 'U-Hellblau', 'U-Violett'].includes(l);
-    const hasMetro = st.lines.some((l) => !isICLine(l));
-    const hasIC = st.lines.some(isICLine);
+    return Object.values(STATIONS).filter((st) => {
+      if (activeRoute && activeRoute.pathStationIds.includes(st.id)) return true;
+      if (st.id === 'kuhl-town') return true;
+      const hasMetro = st.lines.some((l) => !isICLine(l));
+      const hasIC = st.lines.some(isICLine);
 
-    if (showMetroLayer && showICLayer) return true;
-    if (showMetroLayer && !showICLayer) return hasMetro;
-    if (!showMetroLayer && showICLayer) return hasIC;
-    return false;
-  });
+      if (showMetroLayer && showICLayer) return true;
+      if (showMetroLayer && !showICLayer) return hasMetro;
+      if (!showMetroLayer && showICLayer) return hasIC;
+      return false;
+    });
+  }, [activeRoute, showMetroLayer, showICLayer]);
 
   return (
     <div
@@ -592,7 +649,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
       {/* Floating Map Controls */}
       <div className="map-floating-ui absolute top-3 right-3 sm:top-4 sm:right-4 z-20 flex flex-col gap-1.5 sm:gap-2.5 items-end">
         {/* Card 1: Zoom & Reset */}
-        <div className="flex flex-col bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl rounded-2xl border border-slate-200/80 dark:border-slate-800/80 shadow-xl overflow-hidden p-1">
+        <div className="flex flex-col bg-white/95 dark:bg-slate-900/95 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 shadow-xl overflow-hidden p-1">
           <motion.button
             whileTap={{ scale: 0.9 }}
             onClick={(e) => {
@@ -631,7 +688,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
         </div>
 
         {/* Card 2: Layers & Legend (Structured Card to prevent any button overlap) */}
-        <div className="flex flex-col bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl rounded-2xl border border-slate-200/80 dark:border-slate-800/80 shadow-xl overflow-hidden p-1">
+        <div className="flex flex-col bg-white/95 dark:bg-slate-900/95 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 shadow-xl overflow-hidden p-1">
           {/* Metro Network Layer Toggle */}
           {onToggleMetroLayer && (
             <motion.button
@@ -697,7 +754,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
       {/* Top-Left Search Bar & Network Header Overlay */}
       <div className="map-floating-ui absolute top-3 left-3 sm:top-4 sm:left-4 z-20 flex flex-col gap-2 max-w-[270px] sm:max-w-xs w-full pointer-events-auto">
         {/* Station Search Input */}
-        <div className="relative flex items-center bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl border border-slate-200/90 dark:border-slate-800/90 rounded-2xl shadow-xl px-3 py-2 transition-all focus-within:ring-2 focus-within:ring-blue-500/50">
+        <div className="relative flex items-center bg-white/[0.97] dark:bg-slate-900/[0.97] border border-slate-200/90 dark:border-slate-800/90 rounded-2xl shadow-xl px-3 py-2 transition-all focus-within:ring-2 focus-within:ring-blue-500/50">
           <Search className="w-4 h-4 text-slate-400 dark:text-slate-500 shrink-0 mr-2" />
           <input
             type="text"
@@ -716,13 +773,15 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                 onSelectStation(target.id);
                 setSearchQuery('');
                 setIsSearchFocused(false);
-                const targetZoom = Math.max(zoom, 1.45);
-                setZoom(targetZoom);
-                const baseScale = Math.min(containerSize.width / BASE_MAP_W, containerSize.height / BASE_MAP_H) || 1;
+                const targetZoom = Math.max(zoomRef.current, 1.45);
+                const baseScale = Math.min(containerSizeRef.current.width / BASE_MAP_W, containerSizeRef.current.height / BASE_MAP_H) || 1;
                 const effectiveScale = baseScale * targetZoom;
                 const targetCenterX = isMobile ? 550 : MAP_CENTER_X;
                 const targetCenterY = MAP_CENTER_Y;
-                setPan(clampPan(- (target.x - targetCenterX) * effectiveScale, - (target.y - targetCenterY) * effectiveScale, targetZoom));
+                const nextPan = clampPan(- (target.x - targetCenterX) * effectiveScale, - (target.y - targetCenterY) * effectiveScale, targetZoom);
+                applyViewportDirect(targetZoom, nextPan);
+                setZoom(targetZoom);
+                setPan(nextPan);
               } else if (e.key === 'Escape') {
                 setIsSearchFocused(false);
               }
@@ -753,7 +812,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -4 }}
               transition={{ duration: 0.15 }}
-              className="bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl p-1.5 space-y-1 overflow-hidden max-h-60 overflow-y-auto"
+              className="bg-white/[0.97] dark:bg-slate-900/[0.97] border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl p-1.5 space-y-1 overflow-hidden max-h-60 overflow-y-auto"
               onClick={(e) => e.stopPropagation()}
             >
               {matchingStations.map((station) => (
@@ -768,13 +827,15 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                     setSearchQuery('');
                     setIsSearchFocused(false);
                     // Center smoothly on selected station
-                    const targetZoom = Math.max(zoom, 1.45);
-                    setZoom(targetZoom);
-                    const baseScale = Math.min(containerSize.width / BASE_MAP_W, containerSize.height / BASE_MAP_H) || 1;
+                    const targetZoom = Math.max(zoomRef.current, 1.45);
+                    const baseScale = Math.min(containerSizeRef.current.width / BASE_MAP_W, containerSizeRef.current.height / BASE_MAP_H) || 1;
                     const effectiveScale = baseScale * targetZoom;
                     const targetCenterX = isMobile ? 550 : MAP_CENTER_X;
                     const targetCenterY = MAP_CENTER_Y;
-                    setPan(clampPan(- (station.x - targetCenterX) * effectiveScale, - (station.y - targetCenterY) * effectiveScale, targetZoom));
+                    const nextPan = clampPan(- (station.x - targetCenterX) * effectiveScale, - (station.y - targetCenterY) * effectiveScale, targetZoom);
+                    applyViewportDirect(targetZoom, nextPan);
+                    setZoom(targetZoom);
+                    setPan(nextPan);
                   }}
                   className="w-full flex items-center justify-between p-2 rounded-xl text-left hover:bg-slate-100 dark:hover:bg-slate-800/80 transition group"
                 >
@@ -810,7 +871,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
         </AnimatePresence>
 
         {/* Map Header Overlay Card */}
-        <div className="bg-white/85 dark:bg-slate-900/85 backdrop-blur-md px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 shadow-md">
+        <div className="bg-white/95 dark:bg-slate-900/95 px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 shadow-md">
           <div className="text-[9px] sm:text-[10px] tracking-wider uppercase text-blue-600 dark:text-blue-400 font-bold flex items-center justify-between">
             <span>ÄÄPIZRM 044</span>
             {clickedStation && (
@@ -877,7 +938,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: -5 }}
             transition={{ duration: 0.15 }}
-            className="absolute top-14 left-3 right-3 sm:left-auto sm:right-4 sm:w-72 z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl border border-slate-200 dark:border-slate-700/80 rounded-2xl p-4 shadow-2xl text-xs text-slate-700 dark:text-slate-200"
+            className="absolute top-14 left-3 right-3 sm:left-auto sm:right-4 sm:w-72 z-30 bg-white/[0.97] dark:bg-slate-900/[0.97] border border-slate-200 dark:border-slate-700/80 rounded-2xl p-4 shadow-2xl text-xs text-slate-700 dark:text-slate-200"
             onClick={(e) => e.stopPropagation()}
           >
           <div className="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-slate-800 font-semibold text-slate-900 dark:text-white">
@@ -948,17 +1009,20 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
 
       {/* Main SVG Vector Canvas - High Resolution Dynamic ViewBox */}
       <svg
+        ref={svgRef}
         viewBox={svgViewBox}
         className="w-full h-full origin-center select-none"
         preserveAspectRatio="xMidYMid meet"
         shapeRendering="geometricPrecision"
-        textRendering="geometricPrecision"
+        textRendering="optimizeSpeed"
       >
         <defs>
-          <filter id="routeGlow" x="-20%" y="-20%" width="140%" height="140%">
-            <feGaussianBlur stdDeviation={isDragging ? 0 : 3.5} result="blur" />
-            <feComposite in="SourceGraphic" in2="blur" operator="over" />
-          </filter>
+          {highlightGlowEnabled && (
+            <filter id="routeGlow" x="-20%" y="-20%" width="140%" height="140%">
+              <feGaussianBlur stdDeviation={3.5} result="blur" />
+              <feComposite in="SourceGraphic" in2="blur" operator="over" />
+            </filter>
+          )}
 
           {/* Railway tie pattern for IC Train tracks */}
           <pattern id="railPattern" width="8" height="8" patternUnits="userSpaceOnUse">
@@ -1062,7 +1126,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                 strokeLinecap="round"
                 strokeLinejoin="round"
                 strokeOpacity={getLineOpacity('U-Grün')}
-                filter={isLineHighlighted('U-Grün') ? 'url(#routeGlow)' : undefined}
+                filter={highlightGlowEnabled && isLineHighlighted('U-Grün') ? 'url(#routeGlow)' : undefined}
                 className="transition-opacity duration-200"
               />
             </g>
@@ -1119,7 +1183,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                 strokeLinecap="round"
                 strokeLinejoin="round"
                 strokeOpacity={getLineOpacity('U-Rot')}
-                filter={isLineHighlighted('U-Rot') ? 'url(#routeGlow)' : undefined}
+                filter={highlightGlowEnabled && isLineHighlighted('U-Rot') ? 'url(#routeGlow)' : undefined}
                 className="transition-opacity duration-200"
               />
             </g>
@@ -1158,7 +1222,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                 strokeLinecap="round"
                 strokeLinejoin="round"
                 strokeOpacity={getLineOpacity('U-Orange')}
-                filter={isLineHighlighted('U-Orange') ? 'url(#routeGlow)' : undefined}
+                filter={highlightGlowEnabled && isLineHighlighted('U-Orange') ? 'url(#routeGlow)' : undefined}
                 className="transition-opacity duration-200"
               />
             </g>
@@ -1205,7 +1269,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                 strokeLinecap="round"
                 strokeLinejoin="round"
                 strokeOpacity={getLineOpacity('Tim-Train')}
-                filter={isLineHighlighted('Tim-Train') ? 'url(#routeGlow)' : undefined}
+                filter={highlightGlowEnabled && isLineHighlighted('Tim-Train') ? 'url(#routeGlow)' : undefined}
                 className="transition-opacity duration-200"
               />
             </g>
@@ -1256,7 +1320,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                 strokeLinecap="round"
                 strokeLinejoin="round"
                 strokeOpacity={getLineOpacity('U-Schwarz')}
-                filter={isLineHighlighted('U-Schwarz') ? 'url(#routeGlow)' : undefined}
+                filter={highlightGlowEnabled && isLineHighlighted('U-Schwarz') ? 'url(#routeGlow)' : undefined}
                 className="transition-opacity duration-200"
               />
             </g>
@@ -1295,7 +1359,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                 strokeLinecap="round"
                 strokeLinejoin="round"
                 strokeOpacity={getLineOpacity('U-Hellgrün')}
-                filter={isLineHighlighted('U-Hellgrün') ? 'url(#routeGlow)' : undefined}
+                filter={highlightGlowEnabled && isLineHighlighted('U-Hellgrün') ? 'url(#routeGlow)' : undefined}
                 className="transition-opacity duration-200"
               />
             </g>
@@ -1350,7 +1414,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                 strokeLinecap="round"
                 strokeLinejoin="round"
                 strokeOpacity={getLineOpacity('IC-Nordwest')}
-                filter={isLineHighlighted('IC-Nordwest') ? 'url(#routeGlow)' : undefined}
+                filter={highlightGlowEnabled && isLineHighlighted('IC-Nordwest') ? 'url(#routeGlow)' : undefined}
               />
               <path
                 d="
@@ -1406,7 +1470,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                 strokeLinecap="round"
                 strokeLinejoin="round"
                 strokeOpacity={getLineOpacity('IC-Stonebrook')}
-                filter={isLineHighlighted('IC-Stonebrook') ? 'url(#routeGlow)' : undefined}
+                filter={highlightGlowEnabled && isLineHighlighted('IC-Stonebrook') ? 'url(#routeGlow)' : undefined}
               />
               <path
                 d="
@@ -1456,7 +1520,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                 strokeLinecap="round"
                 strokeLinejoin="round"
                 strokeOpacity={getLineOpacity('U-Pink')}
-                filter={isLineHighlighted('U-Pink') ? 'url(#routeGlow)' : undefined}
+                filter={highlightGlowEnabled && isLineHighlighted('U-Pink') ? 'url(#routeGlow)' : undefined}
               />
               <path
                 d="
@@ -1509,7 +1573,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                 strokeLinecap="round"
                 strokeLinejoin="round"
                 strokeOpacity={getLineOpacity('U-Türkis')}
-                filter={isLineHighlighted('U-Türkis') ? 'url(#routeGlow)' : undefined}
+                filter={highlightGlowEnabled && isLineHighlighted('U-Türkis') ? 'url(#routeGlow)' : undefined}
               />
               <path
                 d="
@@ -1563,7 +1627,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                 strokeLinecap="round"
                 strokeLinejoin="round"
                 strokeOpacity={getLineOpacity('IC-CampCarl-Nord')}
-                filter={isLineHighlighted('IC-CampCarl-Nord') ? 'url(#routeGlow)' : undefined}
+                filter={highlightGlowEnabled && isLineHighlighted('IC-CampCarl-Nord') ? 'url(#routeGlow)' : undefined}
               />
               <path
                 d="
@@ -1617,7 +1681,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                 strokeLinecap="round"
                 strokeLinejoin="round"
                 strokeOpacity={getLineOpacity('IC-CampCarl-Central')}
-                filter={isLineHighlighted('IC-CampCarl-Central') ? 'url(#routeGlow)' : undefined}
+                filter={highlightGlowEnabled && isLineHighlighted('IC-CampCarl-Central') ? 'url(#routeGlow)' : undefined}
               />
               <path
                 d="
@@ -1671,7 +1735,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                 strokeLinecap="round"
                 strokeLinejoin="round"
                 strokeOpacity={getLineOpacity('U-Dunkelblau')}
-                filter={isLineHighlighted('U-Dunkelblau') ? 'url(#routeGlow)' : undefined}
+                filter={highlightGlowEnabled && isLineHighlighted('U-Dunkelblau') ? 'url(#routeGlow)' : undefined}
               />
               <path
                 d="
@@ -1731,7 +1795,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                 strokeLinecap="round"
                 strokeLinejoin="round"
                 strokeOpacity={getLineOpacity('U-Hellblau')}
-                filter={isLineHighlighted('U-Hellblau') ? 'url(#routeGlow)' : undefined}
+                filter={highlightGlowEnabled && isLineHighlighted('U-Hellblau') ? 'url(#routeGlow)' : undefined}
               />
               <path
                 d="
@@ -1790,7 +1854,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                 strokeLinecap="round"
                 strokeLinejoin="round"
                 strokeOpacity={getLineOpacity('U-Violett')}
-                filter={isLineHighlighted('U-Violett') ? 'url(#routeGlow)' : undefined}
+                filter={highlightGlowEnabled && isLineHighlighted('U-Violett') ? 'url(#routeGlow)' : undefined}
               />
               <path
                 d="
@@ -1874,7 +1938,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
               strokeLinecap="round"
               strokeLinejoin="round"
               strokeOpacity={getLineOpacity('Plan-Traphgon-T3')}
-              filter={isLineHighlighted('Plan-Traphgon-T3') ? 'url(#routeGlow)' : undefined}
+              filter={highlightGlowEnabled && isLineHighlighted('Plan-Traphgon-T3') ? 'url(#routeGlow)' : undefined}
             />
           </g>
         </g>
@@ -1898,8 +1962,8 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                     strokeWidth="14"
                     strokeLinecap="round"
                     strokeLinejoin="round"
-                    opacity="0.45"
-                    filter="url(#routeGlow)"
+                    opacity={highlightGlowEnabled ? '0.45' : '0.26'}
+                    filter={highlightGlowEnabled ? 'url(#routeGlow)' : undefined}
                   />
                   {/* Solid crisp underlay track in line color */}
                   <path
@@ -1979,11 +2043,15 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
           return (
             <g
               key={station.id}
-              className="cursor-pointer group transition-opacity duration-200"
+              className="cursor-pointer group"
               style={{ opacity: nodeOpacity }}
               onClick={(e) => handleStationClick(e, station.id)}
-              onMouseEnter={() => setHoveredStationId(station.id)}
-              onMouseLeave={() => setHoveredStationId(null)}
+              onMouseEnter={() => {
+                if (!isDraggingRef.current) setHoveredStationId(station.id);
+              }}
+              onMouseLeave={() => {
+                if (!isDraggingRef.current) setHoveredStationId(null);
+              }}
             >
               {/* Highlight Halo for Selected / Active Journey Nodes / Search Matches */}
               {(isOrigin || isDest || isStopover || isClicked || isHovered || (searchQuery.trim().length > 1 && matchingStations.some((m) => m.id === station.id))) && (
@@ -1992,17 +2060,19 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                   cy={station.y}
                   r={isOrigin || isDest || isStopover ? 15 : 12}
                   fill={
-                    isOrigin
-                      ? '#10B981'
-                      : isDest
-                      ? '#EF4444'
-                      : isStopover
-                      ? '#38BDF8'
-                      : isClicked
-                      ? '#38BDF8'
-                      : '#F59E0B'
+                    highlightGlowEnabled
+                      ? isOrigin
+                        ? '#10B981'
+                        : isDest
+                        ? '#EF4444'
+                        : isStopover
+                        ? '#38BDF8'
+                        : isClicked
+                        ? '#38BDF8'
+                        : '#F59E0B'
+                      : 'none'
                   }
-                  fillOpacity="0.35"
+                  fillOpacity={highlightGlowEnabled ? '0.35' : undefined}
                   stroke={
                     isOrigin
                       ? '#10B981'
@@ -2015,14 +2085,15 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                       : '#F59E0B'
                   }
                   strokeWidth="2.5"
-                  strokeOpacity="0.8"
+                  strokeOpacity={highlightGlowEnabled ? '0.85' : '0.9'}
+                  filter={highlightGlowEnabled ? 'url(#routeGlow)' : undefined}
                 />
               )}
 
               {/* Station Geometric Marker (matching IMG_8214 diagram) */}
               {isCarlsHotel ? (
                 // Carls Hotel: Box with crossed diagonals 'X'
-                <g className="transition-transform group-hover:scale-125">
+                <g>
                   <rect
                     x={station.x - 7}
                     y={station.y - 7}
@@ -2059,11 +2130,10 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                   fill={theme === 'dark' ? '#E2E8F0' : '#000000'}
                   stroke={theme === 'dark' ? '#0F172A' : '#FFFFFF'}
                   strokeWidth={1.5}
-                  className="transition-transform group-hover:scale-125"
                 />
               ) : isDoubleRingStation ? (
                 // Major Hubs: White circle with black outer ring
-                <g className="transition-transform group-hover:scale-125 shadow-md">
+                <g>
                   <circle
                     cx={station.x}
                     cy={station.y}
@@ -2085,7 +2155,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                 </g>
               ) : isTerminalBarStation ? (
                 // End-of-line perpendicular terminal bar
-                <g className="transition-transform group-hover:scale-125">
+                <g>
                   {station.id === 'blue-lagoon' && (
                     <line x1={station.x - 10} y1={station.y} x2={station.x + 10} y2={station.y} stroke="#000000" strokeWidth="4" />
                   )}
@@ -2118,7 +2188,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                 </g>
               ) : (
                 // Intermediate station ticks across track
-                <g className="transition-transform group-hover:scale-125">
+                <g>
                   {['badesee', 'carl-station', 'airport-hotel', 'weisses-haus', 'arena', 'squishmallow-city', 'lake-road', 'place-de-la-geiger', 'south-canal-harbor', 'jurassic-park'].includes(station.id) ? (
                     <line
                       x1={station.x - 8}
@@ -2199,7 +2269,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                 paintOrder="stroke fill"
                 strokeLinejoin="round"
                 strokeLinecap="round"
-                className="select-none pointer-events-none transition-colors font-sans"
+                className="select-none pointer-events-none font-sans"
               >
                 {station.id === 'traphgon-fern-t3' ? (
                   <>
@@ -2256,8 +2326,8 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                 strokeWidth="14"
                 strokeLinecap="round"
                 strokeLinejoin="round"
-                opacity="0.6"
-                filter="url(#routeGlow)"
+                opacity={highlightGlowEnabled ? '0.6' : '0.28'}
+                filter={highlightGlowEnabled ? 'url(#routeGlow)' : undefined}
               />
               {/* Solid dark warning base */}
               <path
@@ -2338,7 +2408,6 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                 fill="#DC2626"
                 stroke="#FFFFFF"
                 strokeWidth="2"
-                className="shadow-lg filter drop-shadow(0 2px 4px rgba(0,0,0,0.5))"
               />
               {/* Warning Symbol */}
               <text
@@ -2393,17 +2462,17 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
             dragElastic={0}
             dragMomentum={false}
             onDragStart={() => {
-              setIsInfoCardDragging(true);
-              setIsDragging(false);
+              isInfoCardDraggingRef.current = true;
+              isDraggingRef.current = false;
             }}
             onDragEnd={() => {
-              setIsInfoCardDragging(false);
+              isInfoCardDraggingRef.current = false;
             }}
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
             style={{ touchAction: 'none' }}
-            className="info-window-sheet absolute top-16 left-3 right-3 sm:top-4 sm:left-auto sm:right-16 sm:max-w-xs z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl border border-slate-200 dark:border-slate-800 rounded-2xl p-3 shadow-xl space-y-2 select-none cursor-grab active:cursor-grabbing"
+            className="info-window-sheet absolute top-16 left-3 right-3 sm:top-4 sm:left-auto sm:right-16 sm:max-w-xs z-30 bg-white/[0.97] dark:bg-slate-900/[0.97] border border-slate-200 dark:border-slate-800 rounded-2xl p-3 shadow-xl space-y-2 select-none cursor-grab active:cursor-grabbing"
             onClick={(e) => e.stopPropagation()}
           >
             {/* iOS-style Drag Handle Pill */}
@@ -2531,7 +2600,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
               whileHover={{ scale: 1.04 }}
               whileTap={{ scale: 0.94 }}
               onClick={handleToggleLegend}
-              className="flex items-center gap-2 px-3 py-2 rounded-2xl bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl border border-slate-200 dark:border-slate-800 shadow-xl text-xs font-bold text-slate-800 dark:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800 transition shadow-slate-900/10 active:scale-95"
+              className="flex items-center gap-2 px-3 py-2 rounded-2xl bg-white/[0.97] dark:bg-slate-900/[0.97] border border-slate-200 dark:border-slate-800 shadow-xl text-xs font-bold text-slate-800 dark:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800 transition shadow-slate-900/10 active:scale-95"
               title={t.expandLegend}
             >
               <div className="flex items-center gap-1.5">
@@ -2555,7 +2624,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.92, y: 10 }}
               transition={{ type: 'spring', stiffness: 450, damping: 32 }}
-              className="w-[195px] max-h-56 flex flex-col p-2.5 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl text-xs shadow-slate-950/20"
+              className="w-[195px] max-h-56 flex flex-col p-2.5 bg-white/[0.97] dark:bg-slate-900/[0.97] rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl text-xs shadow-slate-950/20"
             >
               {/* Header */}
               <div className="flex items-center justify-between pb-1.5 mb-1.5 border-b border-slate-100 dark:border-slate-800">
@@ -2661,11 +2730,11 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
             dragMomentum={false}
             onDragStart={() => {
               dragMovedRef.current = true;
-              setIsInfoCardDragging(true);
-              setIsDragging(false);
+              isInfoCardDraggingRef.current = true;
+              isDraggingRef.current = false;
             }}
             onDragEnd={() => {
-              setIsInfoCardDragging(false);
+              isInfoCardDraggingRef.current = false;
               setTimeout(() => {
                 dragMovedRef.current = false;
               }, 120);
@@ -2679,7 +2748,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
               damping: 32,
             }}
             style={{ touchAction: 'none' }}
-            className="info-window-sheet absolute bottom-22 sm:bottom-24 md:bottom-4 right-3 sm:right-4 w-[calc(100%-1.5rem)] sm:w-96 max-w-sm sm:max-w-md overflow-hidden z-45 bg-white/95 dark:bg-slate-900/95 backdrop-blur-2xl border-2 border-amber-500/80 dark:border-amber-500/70 rounded-3xl shadow-[0_16px_48px_rgba(0,0,0,0.22)] dark:shadow-[0_16px_48px_rgba(0,0,0,0.65)] p-3.5 select-none"
+            className="info-window-sheet absolute bottom-22 sm:bottom-24 md:bottom-4 right-3 sm:right-4 w-[calc(100%-1.5rem)] sm:w-96 max-w-sm sm:max-w-md overflow-hidden z-45 bg-white/[0.97] dark:bg-slate-900/[0.97] border-2 border-amber-500/80 dark:border-amber-500/70 rounded-3xl shadow-[0_16px_48px_rgba(0,0,0,0.22)] dark:shadow-[0_16px_48px_rgba(0,0,0,0.65)] p-3.5 select-none"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Top Bar / Drag Handle - Click to toggle collapse/expand or drag to move */}
@@ -2923,11 +2992,11 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
             dragMomentum={false}
             onDragStart={() => {
               dragMovedRef.current = true;
-              setIsInfoCardDragging(true);
-              setIsDragging(false);
+              isInfoCardDraggingRef.current = true;
+              isDraggingRef.current = false;
             }}
             onDragEnd={() => {
-              setIsInfoCardDragging(false);
+              isInfoCardDraggingRef.current = false;
               setTimeout(() => {
                 dragMovedRef.current = false;
               }, 120);
@@ -2941,9 +3010,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
               damping: 32,
             }}
             style={{ touchAction: 'none' }}
-            className={`info-window-sheet absolute bottom-22 sm:bottom-24 md:bottom-4 right-3 sm:right-4 w-[calc(100%-1.5rem)] sm:w-84 max-w-sm overflow-hidden z-45 bg-white/95 dark:bg-slate-900/95 backdrop-blur-2xl border border-black/10 dark:border-white/15 rounded-3xl shadow-[0_16px_48px_rgba(0,0,0,0.22)] dark:shadow-[0_16px_48px_rgba(0,0,0,0.65)] p-3.5 select-none ${
-              isDragging ? 'pointer-events-none' : ''
-            }`}
+            className="info-window-sheet absolute bottom-22 sm:bottom-24 md:bottom-4 right-3 sm:right-4 w-[calc(100%-1.5rem)] sm:w-84 max-w-sm overflow-hidden z-45 bg-white/[0.97] dark:bg-slate-900/[0.97] border border-black/10 dark:border-white/15 rounded-3xl shadow-[0_16px_48px_rgba(0,0,0,0.22)] dark:shadow-[0_16px_48px_rgba(0,0,0,0.65)] p-3.5 select-none"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Top Bar / Drag Handle - Click to toggle collapse/expand or drag to move */}
@@ -3232,11 +3299,11 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
             dragMomentum={false}
             onDragStart={() => {
               dragMovedRef.current = true;
-              setIsInfoCardDragging(true);
-              setIsDragging(false);
+              isInfoCardDraggingRef.current = true;
+              isDraggingRef.current = false;
             }}
             onDragEnd={() => {
-              setIsInfoCardDragging(false);
+              isInfoCardDraggingRef.current = false;
               setTimeout(() => {
                 dragMovedRef.current = false;
               }, 120);
@@ -3250,9 +3317,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
               damping: 32,
             }}
             style={{ touchAction: 'none' }}
-            className={`info-window-sheet absolute bottom-22 sm:bottom-24 md:bottom-4 right-3 sm:right-4 w-[calc(100%-1.5rem)] sm:w-96 max-w-sm sm:max-w-md overflow-hidden z-45 bg-white/95 dark:bg-slate-900/95 backdrop-blur-2xl border border-black/10 dark:border-white/15 rounded-3xl shadow-[0_16px_48px_rgba(0,0,0,0.22)] dark:shadow-[0_16px_48px_rgba(0,0,0,0.65)] p-3.5 select-none ${
-              isDragging ? 'pointer-events-none' : ''
-            }`}
+            className="info-window-sheet absolute bottom-22 sm:bottom-24 md:bottom-4 right-3 sm:right-4 w-[calc(100%-1.5rem)] sm:w-96 max-w-sm sm:max-w-md overflow-hidden z-45 bg-white/[0.97] dark:bg-slate-900/[0.97] border border-black/10 dark:border-white/15 rounded-3xl shadow-[0_16px_48px_rgba(0,0,0,0.22)] dark:shadow-[0_16px_48px_rgba(0,0,0,0.65)] p-3.5 select-none"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Top Bar / Drag Handle - Click to toggle collapse/expand or drag to move */}

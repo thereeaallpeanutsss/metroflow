@@ -42,6 +42,8 @@ interface IOSSettingsViewProps {
   onDeleteSavedJourney: (journeyId: string) => void;
   mapRoutePlanningEnabled: boolean;
   onToggleMapRoutePlanning: (enabled: boolean) => void;
+  mapHighlightGlowEnabled?: boolean;
+  onToggleMapHighlightGlow?: (enabled: boolean) => void;
   isAdmin: boolean;
   onToggleAdmin: (isAdmin: boolean) => void;
   tabBarStyle: TabBarStyle;
@@ -66,6 +68,8 @@ export const IOSSettingsView: React.FC<IOSSettingsViewProps> = ({
   onDeleteSavedJourney,
   mapRoutePlanningEnabled,
   onToggleMapRoutePlanning,
+  mapHighlightGlowEnabled = false,
+  onToggleMapHighlightGlow,
   isAdmin,
   onToggleAdmin,
   tabBarStyle,
@@ -506,6 +510,44 @@ export const IOSSettingsView: React.FC<IOSSettingsViewProps> = ({
               />
             </button>
           </div>
+
+          {/* Map Highlight Glow Switch (Off by default for max FPS) */}
+          {onToggleMapHighlightGlow && (
+            <div className="p-4 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-8 h-8 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-sm">
+                  <Sparkles className="w-4 h-4" />
+                </div>
+                <div className="min-w-0">
+                  <span className="text-sm font-bold text-slate-900 dark:text-white block">
+                    {t.mapHighlightGlow}
+                  </span>
+                  <span className="text-xs text-slate-500 dark:text-slate-400">
+                    {t.mapHighlightGlowDesc}
+                  </span>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  haptic.selection();
+                  onToggleMapHighlightGlow(!mapHighlightGlowEnabled);
+                }}
+                className={`w-12 h-7 rounded-full p-0.5 transition-colors cursor-pointer flex items-center shrink-0 ${
+                  mapHighlightGlowEnabled ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-zinc-700'
+                }`}
+              >
+                <motion.div
+                  layout
+                  transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+                  className={`w-6 h-6 rounded-full bg-white shadow-md ${
+                    mapHighlightGlowEnabled ? 'ml-auto' : 'ml-0'
+                  }`}
+                />
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -592,8 +634,8 @@ export const IOSSettingsView: React.FC<IOSSettingsViewProps> = ({
                   {isAdmin
                     ? t.adminActiveDesc
                     : language === 'de'
-                    ? 'Verifiziere dich als Administrator mit dem Passcode "abc123".'
-                    : 'Verify administrator status using passcode "abc123".'}
+                    ? 'Verifiziere dich als Administrator mit deinem Freischaltcode.'
+                    : 'Verify administrator status using your admin passcode.'}
                 </span>
               </div>
             </div>
@@ -611,8 +653,8 @@ export const IOSSettingsView: React.FC<IOSSettingsViewProps> = ({
                   type="password"
                   value={adminCodeInput}
                   onChange={(e) => setAdminCodeInput(e.target.value)}
-                  placeholder="Code: abc123"
-                  className="flex-1 py-2 px-3 rounded-xl bg-slate-100 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder={t.adminCodePlaceholder}
+                  className="flex-1 py-2 px-3 rounded-xl bg-slate-100 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono tracking-wider"
                 />
                 <button
                   type="submit"
