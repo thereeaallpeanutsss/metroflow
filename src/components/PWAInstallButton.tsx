@@ -23,18 +23,19 @@ export const PWAInstallButton: React.FC = () => {
             setShowGuide(true);
           }
         }}
-        className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700 text-slate-200 text-xs font-medium backdrop-blur-md transition-all active:scale-95 shadow-sm"
-        title="App auf Homescreen installieren"
+        className="flex items-center justify-center gap-1.5 w-8 h-8 sm:w-auto sm:h-auto sm:px-3 sm:py-1.5 rounded-full bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700 text-slate-200 text-xs font-medium backdrop-blur-md transition-all active:scale-95 shadow-sm shrink-0 cursor-pointer"
+        title={isInstallable ? 'App auf Homescreen installieren' : 'iOS Web App installieren'}
+        aria-label={isInstallable ? 'App installieren' : 'iOS Web App'}
       >
         {isInstallable ? (
           <>
-            <Download className="w-3.5 h-3.5 text-blue-400" />
-            <span>App installieren</span>
+            <Download className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+            <span className="hidden sm:inline whitespace-nowrap">App installieren</span>
           </>
         ) : (
           <>
-            <Smartphone className="w-3.5 h-3.5 text-emerald-400" />
-            <span>iOS Web App</span>
+            <Smartphone className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+            <span className="hidden sm:inline whitespace-nowrap">iOS Web App</span>
           </>
         )}
       </button>
@@ -53,9 +54,11 @@ export const PWAInstallButton: React.FC = () => {
             </button>
 
             <div className="flex items-center gap-3 mb-4">
-              <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-blue-600 to-emerald-500 flex items-center justify-center shadow-lg shadow-blue-500/20">
-                <span className="text-xl font-bold text-white tracking-wider">M</span>
-              </div>
+              <img
+                src={`${import.meta.env.BASE_URL}app-icon.png`}
+                alt="MetroFlow"
+                className="w-12 h-12 rounded-2xl object-cover shadow-lg shadow-black/30 ring-1 ring-white/15 shrink-0"
+              />
               <div>
                 <h3 className="text-base font-semibold text-white">MetroFlow auf iOS</h3>
                 <p className="text-xs text-slate-400">Als native Web App hinzufügen</p>

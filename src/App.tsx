@@ -12,7 +12,12 @@ import { InteractiveMap } from './components/InteractiveMap';
 import { LineDirectory } from './components/LineDirectory';
 import { OptionsMenu } from './components/OptionsMenu';
 import { OfflineIndicator } from './components/OfflineIndicator';
-import { findRoutesWithStopover, buildRideSteps, setGlobalTravelTimeOverrides } from './utils/routeFinder';
+import {
+  findRoutesWithStopover,
+  buildRideSteps,
+  setGlobalTravelTimeOverrides,
+  getRideRemainingSeconds,
+} from './utils/routeFinder';
 import {
   RouteOption,
   LineId,
@@ -342,7 +347,10 @@ export default function App() {
       steps,
       currentStepIndex: 0,
       isMinimized: false,
+      journeyStarted: false,
       startedAt: Date.now(),
+      lastReportedAt: null,
+      reportedTimestamps: {},
       loggingEnabled: false,
       loggingStatus: 'idle',
       segmentTimerStartedAt: null,
@@ -1134,7 +1142,7 @@ export default function App() {
             animate={{ y: 0, opacity: 1, scale: 1 }}
             exit={{ y: -20, opacity: 0, scale: 0.95 }}
             transition={{ type: 'spring', stiffness: 500, damping: 32 }}
-            className="fixed top-16 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 rounded-full bg-slate-900/90 dark:bg-white/90 text-white dark:text-slate-950 px-4 py-2 text-xs font-semibold shadow-2xl backdrop-blur-md"
+            className="fixed top-[calc(6rem+env(safe-area-inset-top))] sm:top-16 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 rounded-full bg-slate-900/90 dark:bg-white/90 text-white dark:text-slate-950 px-4 py-2 text-xs font-semibold shadow-2xl backdrop-blur-md"
           >
             <BookmarkCheck className="w-4 h-4 text-emerald-400 dark:text-emerald-600 shrink-0" />
             <span>{toastMessage}</span>
@@ -1143,31 +1151,54 @@ export default function App() {
       </AnimatePresence>
 
       {/* Top Header: iOS Overhaul Header vs Classic Header */}
-      {uiTheme === 'ios' ? (
-        <IOSHeader
-          language={language}
-          theme={theme}
-          onToggleTheme={handleToggleTheme}
-          activeTab={activeTab}
-          onNavigateToTab={setActiveTab}
-          disruptions={disruptions}
-          hasMinimizedActiveRide={Boolean(activeRide && activeRide.isMinimized)}
-          onOpenActiveRide={handleOpenActiveRide}
-          onStatusWindowOpenChange={setIsStatusWindowOpen}
-        />
-      ) : (
-        <Header
-          language={language}
-          theme={theme}
-          onToggleTheme={handleToggleTheme}
-          activeTab={activeTab}
-          disruptions={disruptions}
-          onNavigateToTab={setActiveTab}
-          hasMinimizedActiveRide={Boolean(activeRide && activeRide.isMinimized)}
-          onOpenActiveRide={handleOpenActiveRide}
-          onStatusWindowOpenChange={setIsStatusWindowOpen}
-        />
-      )}
+      {(() => {
+        const activeRideEta =
+          activeRide && activeRide.journeyStarted
+            ? (() => {
+                const anchorMs = activeRide.lastReportedAt || activeRide.startedAt || Date.now();
+                const remSec = getRideRemainingSeconds(activeRide.steps, activeRide.currentStepIndex);
+                return new Date(anchorMs + remSec * 1000).toLocaleTimeString(
+                  language === 'de' ? 'de-DE' : 'en-US',
+                  {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: false,
+                  }
+                );
+              })()
+            : null;
+        const hasActiveMinimized = Boolean(
+          activeRide && activeRide.journeyStarted && activeRide.isMinimized
+        );
+
+        return uiTheme === 'ios' ? (
+          <IOSHeader
+            language={language}
+            theme={theme}
+            onToggleTheme={handleToggleTheme}
+            activeTab={activeTab}
+            onNavigateToTab={setActiveTab}
+            disruptions={disruptions}
+            hasMinimizedActiveRide={hasActiveMinimized}
+            activeRideEta={activeRideEta}
+            onOpenActiveRide={handleOpenActiveRide}
+            onStatusWindowOpenChange={setIsStatusWindowOpen}
+          />
+        ) : (
+          <Header
+            language={language}
+            theme={theme}
+            onToggleTheme={handleToggleTheme}
+            activeTab={activeTab}
+            disruptions={disruptions}
+            onNavigateToTab={setActiveTab}
+            hasMinimizedActiveRide={hasActiveMinimized}
+            activeRideEta={activeRideEta}
+            onOpenActiveRide={handleOpenActiveRide}
+            onStatusWindowOpenChange={setIsStatusWindowOpen}
+          />
+        );
+      })()}
 
       {/* First-launch Update Conducted Notification Banner */}
       <AnimatePresence>
@@ -1177,7 +1208,7 @@ export default function App() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -20, scale: 0.95 }}
             transition={{ type: 'spring', damping: 24, stiffness: 300 }}
-            className="fixed top-[calc(4rem+env(safe-area-inset-top))] left-3 right-3 sm:left-auto sm:right-6 sm:w-[410px] z-50 pointer-events-auto"
+            className="fixed top-[calc(6rem+env(safe-area-inset-top))] sm:top-[calc(4rem+env(safe-area-inset-top))] left-3 right-3 sm:left-auto sm:right-6 sm:w-[410px] z-50 pointer-events-auto"
           >
             <div className="p-3.5 sm:p-4 rounded-2xl bg-gradient-to-r from-blue-600 via-indigo-600 to-sky-600 text-white shadow-2xl border border-white/25 flex items-start gap-3 backdrop-blur-md">
               <div className="w-8 h-8 rounded-xl bg-white/20 flex items-center justify-center shrink-0 mt-0.5 shadow-xs">
@@ -1231,8 +1262,8 @@ export default function App() {
       <main
         className={`flex-1 w-full max-w-5xl mx-auto flex flex-col ${
           activeTab === 'map'
-            ? 'px-0 md:px-6 pt-[calc(3.5rem+env(safe-area-inset-top))] pb-16 md:pb-6'
-            : 'px-4 md:px-6 pt-[calc(3.5rem+env(safe-area-inset-top)+1.25rem)] pb-24 md:pb-8'
+            ? 'px-0 md:px-6 pt-[calc(5.625rem+env(safe-area-inset-top))] sm:pt-[calc(3.5rem+env(safe-area-inset-top))] pb-16 md:pb-6'
+            : 'px-4 md:px-6 pt-[calc(5.625rem+env(safe-area-inset-top)+0.75rem)] sm:pt-[calc(3.5rem+env(safe-area-inset-top)+1.25rem)] pb-24 md:pb-8'
         } overflow-x-hidden`}
       >
         <AnimatePresence mode="wait">
@@ -1311,7 +1342,7 @@ export default function App() {
                   onClearRecentRoutes={handleClearRecentRoutes}
                   onRestoreLastEntry={handleRestoreLastEntry}
                   isAdmin={isAdmin}
-                  activeRideId={activeRide?.route.id || null}
+                  activeRideId={activeRide?.journeyStarted ? activeRide.route.id : null}
                   onStartRide={handleStartRide}
                   onOpenActiveRide={handleOpenActiveRide}
                 />
@@ -1345,7 +1376,7 @@ export default function App() {
                   onClearRecentRoutes={handleClearRecentRoutes}
                   onRestoreLastEntry={handleRestoreLastEntry}
                   isAdmin={isAdmin}
-                  activeRideId={activeRide?.route.id || null}
+                  activeRideId={activeRide?.journeyStarted ? activeRide.route.id : null}
                   onStartRide={handleStartRide}
                   onOpenActiveRide={handleOpenActiveRide}
                 />
@@ -1360,7 +1391,7 @@ export default function App() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -6 }}
               transition={{ duration: 0.18, ease: 'easeOut' }}
-              className="flex-1 flex flex-col h-[calc(100dvh-7.5rem)] md:min-h-[580px] rounded-none md:rounded-3xl overflow-hidden border-0 md:border border-slate-200 dark:border-slate-800 shadow-none md:shadow-2xl relative"
+              className="flex-1 flex flex-col h-[calc(100dvh-9.625rem)] sm:h-[calc(100dvh-7.5rem)] md:min-h-[580px] rounded-none md:rounded-3xl overflow-hidden border-0 md:border border-slate-200 dark:border-slate-800 shadow-none md:shadow-2xl relative"
             >
               <InteractiveMap
                 language={language}
@@ -1400,7 +1431,7 @@ export default function App() {
                 isAdmin={isAdmin}
                 onEditDisruption={handleOpenEditDisruption}
                 onDeleteDisruption={handleDeleteDisruption}
-                activeRide={activeRide}
+                activeRide={activeRide?.journeyStarted ? activeRide : null}
                 onOpenActiveRide={handleOpenActiveRide}
                 travelTimeOverrides={travelTimeOverrides}
               />

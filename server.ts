@@ -8,7 +8,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const PORT = 3000;
+const portArgIndex = process.argv.indexOf('--port');
+const rawPort = (portArgIndex !== -1 ? process.argv[portArgIndex + 1] : undefined) || process.env.PORT || '3000';
+const PORT = Number(rawPort) || 3000;
 
 // Enable CORS for cross-device synchronization and GitHub Pages hosting
 app.use((req, res, next) => {
@@ -146,6 +148,10 @@ function saveTravelTimes(map: Record<string, StoredSegmentTravelTime>) {
 let travelTimesCache: Record<string, StoredSegmentTravelTime> = loadTravelTimes();
 
 // --- API ROUTES ---
+
+app.get('/api/health', (_req, res) => {
+  res.json({ status: 'ok', uptime: process.uptime() });
+});
 
 // 1. Get all active disruptions
 app.get('/api/disruptions', (_req, res) => {
@@ -455,23 +461,51 @@ async function startServer() {
   const isProduction = process.env.NODE_ENV === 'production';
   const server = http.createServer(app);
 
+  server.on('error', (err) => {
+    console.error('HTTP server error:', err);
+    process.exit(1);
+  });
+
+  server.on('clientError', (_err, socket) => {
+    socket.destroy();
+  });
+
   if (!isProduction) {
-    const { createServer } = await import('vite');
     const disableHmr = process.env.DISABLE_HMR === 'true';
-    const vite = await createServer({
-      server: {
-        middlewareMode: true,
-        hmr: disableHmr ? false : { server },
-        watch: disableHmr ? null : {},
-      },
-      appType: 'spa',
+    const viteReadyPromise = (async () => {
+      const { createServer } = await import('vite');
+      return createServer({
+        server: {
+          middlewareMode: true,
+          hmr: disableHmr ? false : { server },
+          watch: disableHmr ? null : {},
+        },
+        appType: 'spa',
+      });
+    })();
+
+    viteReadyPromise.catch((err) => {
+      console.error('Failed to initialize Vite dev server:', err);
     });
-    app.use(vite.middlewares);
+
+    app.use(async (req, res, next) => {
+      if (req.originalUrl.startsWith('/api')) {
+        return next();
+      }
+      try {
+        const vite = await viteReadyPromise;
+        vite.middlewares(req, res, next);
+      } catch (err) {
+        next(err);
+      }
+    });
+
     app.use('*', async (req, res, next) => {
       if (req.originalUrl.startsWith('/api')) {
         return next();
       }
       try {
+        const vite = await viteReadyPromise;
         let template = fs.readFileSync(path.resolve(__dirname, 'index.html'), 'utf-8');
         template = await vite.transformIndexHtml(req.originalUrl, template);
         res.status(200).set({ 'Content-Type': 'text/html' }).end(template);
@@ -487,10 +521,6 @@ async function startServer() {
     });
   }
 
-  server.on('clientError', (_err, socket) => {
-    socket.destroy();
-  });
-
   server.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on http://0.0.0.0:${PORT}`);
   });
@@ -498,4 +528,5 @@ async function startServer() {
 
 startServer().catch((err) => {
   console.error('Failed to start server:', err);
+  process.exit(1);
 });

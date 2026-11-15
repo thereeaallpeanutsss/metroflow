@@ -2,10 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { PWAInstallButton } from './PWAInstallButton';
 import {
-  TrainFront,
   Sun,
   Moon,
-  Wifi,
   WifiOff,
   Clock,
   Calendar,
@@ -33,6 +31,7 @@ interface HeaderProps {
   onNavigateToTab?: (tab: AppTab) => void;
   disruptions?: Disruption[];
   hasMinimizedActiveRide?: boolean;
+  activeRideEta?: string | null;
   onOpenActiveRide?: () => void;
   onStatusWindowOpenChange?: (isOpen: boolean) => void;
 }
@@ -45,6 +44,7 @@ export const Header: React.FC<HeaderProps> = ({
   onNavigateToTab,
   disruptions = [],
   hasMinimizedActiveRide = false,
+  activeRideEta = null,
   onOpenActiveRide,
   onStatusWindowOpenChange,
 }) => {
@@ -83,6 +83,7 @@ export const Header: React.FC<HeaderProps> = ({
         now.toLocaleTimeString(language === 'de' ? 'de-DE' : 'en-US', {
           hour: '2-digit',
           minute: '2-digit',
+          hour12: false,
         })
       );
 
@@ -129,15 +130,19 @@ export const Header: React.FC<HeaderProps> = ({
   return (
     <>
       <header className="fixed top-0 left-0 right-0 z-40 w-full bg-white/85 dark:bg-slate-950/85 backdrop-blur-xl border-b border-slate-200 dark:border-slate-800/80 pt-[env(safe-area-inset-top)] transition-colors shadow-xs select-none">
-        <div className="max-w-4xl mx-auto px-4 h-14 flex items-center justify-between gap-2">
+        <div className="max-w-4xl mx-auto px-3.5 sm:px-4 h-12 sm:h-14 flex items-center justify-between gap-2">
           {/* Brand Identity */}
           <div className="flex items-center gap-2.5 shrink-0">
             <motion.div
               whileHover={{ scale: 1.05, rotate: -2 }}
               whileTap={{ scale: 0.95 }}
-              className="w-8 h-8 rounded-xl bg-gradient-to-tr from-blue-600 via-indigo-600 to-emerald-500 flex items-center justify-center shadow-md shadow-blue-500/20 shrink-0"
+              className="w-8 h-8 rounded-xl overflow-hidden shadow-md shadow-black/20 ring-1 ring-black/10 dark:ring-white/15 shrink-0"
             >
-              <TrainFront className="w-4 h-4 text-white" />
+              <img
+                src={`${import.meta.env.BASE_URL}app-icon.png`}
+                alt="MetroFlow"
+                className="w-full h-full object-cover"
+              />
             </motion.div>
             <div>
               <div className="flex items-center gap-1.5">
@@ -146,19 +151,19 @@ export const Header: React.FC<HeaderProps> = ({
                   044
                 </span>
               </div>
-              <p className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
+              <p className="hidden sm:block text-[10px] text-slate-500 dark:text-slate-400 font-medium">
                 {t.appSubtitle}
               </p>
             </div>
           </div>
 
-          {/* Center: Live Time Window, Disruption Pill & Active Ride Pill */}
-          <div className="flex items-center justify-center gap-1.5 flex-1 min-w-0 px-1">
+          {/* Desktop/Tablet Center: Live Time Window, Disruption Pill & Active Ride Pill */}
+          <div className="hidden sm:flex items-center justify-center gap-2 flex-1 min-w-0 px-1">
             <motion.button
               onClick={handleOpenStatusModal}
               whileHover={{ scale: 1.03 }}
               whileTap={{ scale: 0.96 }}
-              className={`px-2.5 sm:px-3 py-1.5 rounded-full flex items-center gap-1.5 sm:gap-2 border transition-all cursor-pointer shadow-sm truncate max-w-full ${
+              className={`px-3 py-1.5 rounded-full flex items-center gap-2 border transition-all cursor-pointer shadow-sm truncate max-w-full ${
                 isAllClear
                   ? 'bg-slate-900/90 dark:bg-zinc-900/90 text-white border-slate-700/60 dark:border-zinc-700/60 hover:bg-slate-800 dark:hover:bg-zinc-800'
                   : 'bg-black/95 dark:bg-zinc-900/95 text-amber-300 border-amber-500/40 hover:border-amber-400 shadow-amber-500/10'
@@ -195,13 +200,19 @@ export const Header: React.FC<HeaderProps> = ({
                     ? 'Normalbetrieb'
                     : 'All Normal'
                   : `${activeDisruptionsCount} ${
-                      language === 'de' ? 'Störung(en)' : 'Alert(s)'
+                      activeDisruptionsCount === 1
+                        ? language === 'de'
+                          ? 'Störung'
+                          : 'Alert'
+                        : language === 'de'
+                        ? 'Störungen'
+                        : 'Alerts'
                     }`}
               </span>
 
-              {/* Time display: HH:MM (Always visible alongside alert count) */}
+              {/* Time display: HH:MM */}
               {shortTime && (
-                <span className="text-[10px] text-slate-400 border-l border-slate-700 pl-1.5 shrink-0 font-mono font-medium">
+                <span className="text-[10px] text-slate-400 border-l border-slate-700 pl-1.5 shrink-0 font-mono font-medium tabular-nums">
                   {shortTime}
                 </span>
               )}
@@ -218,7 +229,7 @@ export const Header: React.FC<HeaderProps> = ({
                   haptic.selection();
                   onOpenActiveRide();
                 }}
-                className="px-2.5 sm:px-3 py-1.5 rounded-full flex items-center gap-1.5 border bg-emerald-950/95 dark:bg-emerald-950/95 text-emerald-300 border-emerald-500/50 hover:border-emerald-400 shadow-sm shadow-emerald-500/20 cursor-pointer shrink-0 whitespace-nowrap transition-all"
+                className="px-3 py-1.5 rounded-full flex items-center gap-1.5 border bg-emerald-950/95 text-emerald-300 border-emerald-500/50 hover:border-emerald-400 shadow-sm shadow-emerald-500/20 cursor-pointer shrink-0 whitespace-nowrap transition-all"
                 title={t.rideModeTitle}
               >
                 <span className="relative flex h-2 w-2 shrink-0">
@@ -229,12 +240,17 @@ export const Header: React.FC<HeaderProps> = ({
                 <span className="text-[11px] font-bold tracking-tight text-white">
                   {t.activeRide}
                 </span>
+                {activeRideEta && (
+                  <span className="text-[10px] text-emerald-200 border-l border-emerald-600/70 pl-1.5 shrink-0 font-mono font-semibold tabular-nums">
+                    {t.etaCompact} {activeRideEta}
+                  </span>
+                )}
               </motion.button>
             )}
           </div>
 
           {/* Right side actions: Online/Offline status + Quick theme toggle + PWA install button */}
-          <div className="flex items-center gap-1.5 xs:gap-2 shrink-0">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             {/* Online / Offline Status Badge */}
             <div
               className={`px-2 py-1 rounded-full text-[10px] font-bold flex items-center gap-1.5 border transition-colors ${
@@ -267,8 +283,9 @@ export const Header: React.FC<HeaderProps> = ({
               }}
               whileHover={{ scale: 1.08 }}
               whileTap={{ scale: 0.88 }}
-              className="p-2 rounded-full bg-slate-100 dark:bg-slate-800/80 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition-colors shadow-xs cursor-pointer"
+              className="w-8 h-8 sm:w-auto sm:h-auto sm:p-2 rounded-full bg-slate-100 dark:bg-slate-800/80 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 flex items-center justify-center transition-colors shadow-xs cursor-pointer"
               title={theme === 'dark' ? t.lightMode : t.darkMode}
+              aria-label={theme === 'dark' ? t.lightMode : t.darkMode}
             >
               <motion.div
                 key={theme}
@@ -286,6 +303,100 @@ export const Header: React.FC<HeaderProps> = ({
 
             <PWAInstallButton />
           </div>
+        </div>
+
+        {/* Mobile Action Strip: Equal-size Disruptions/Time + Active Ride (or full-width Disruptions/Time when idle) */}
+        <div
+          className={`sm:hidden max-w-4xl mx-auto px-3.5 pb-2 pt-0.5 grid gap-2 ${
+            hasMinimizedActiveRide && onOpenActiveRide ? 'grid-cols-2' : 'grid-cols-1'
+          }`}
+        >
+          <motion.button
+            onClick={handleOpenStatusModal}
+            whileTap={{ scale: 0.98 }}
+            className={`w-full min-w-0 h-9 px-2.5 rounded-xl flex items-center justify-between gap-1.5 border transition-all cursor-pointer shadow-xs ${
+              isAllClear
+                ? 'bg-slate-900/95 dark:bg-zinc-900/95 text-white border-slate-700/70 dark:border-zinc-700/70'
+                : 'bg-zinc-950/95 text-amber-300 border-amber-500/45 shadow-amber-500/10'
+            }`}
+            title={
+              language === 'de'
+                ? 'Tippen für Uhrzeit, Datum & Störungsdetails'
+                : 'Tap for time, date & disruption details'
+            }
+            aria-label={
+              language === 'de'
+                ? 'Netzwerkstatus und Uhrzeit anzeigen'
+                : 'Show network status and time'
+            }
+          >
+            <span className="flex items-center gap-1.5 min-w-0">
+              <span className="relative flex h-2 w-2 shrink-0">
+                <span
+                  className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
+                    isAllClear ? 'bg-emerald-400' : 'bg-amber-400'
+                  }`}
+                />
+                <span
+                  className={`relative inline-flex rounded-full h-2 w-2 ${
+                    isAllClear ? 'bg-emerald-500' : 'bg-amber-500'
+                  }`}
+                />
+              </span>
+              <span className="text-[11px] font-semibold tracking-tight text-white truncate">
+                {isAllClear
+                  ? language === 'de'
+                    ? 'Normalbetrieb'
+                    : 'All Normal'
+                  : `${activeDisruptionsCount} ${
+                      activeDisruptionsCount === 1
+                        ? language === 'de'
+                          ? 'Störung'
+                          : 'Alert'
+                        : language === 'de'
+                        ? 'Störungen'
+                        : 'Alerts'
+                    }`}
+              </span>
+            </span>
+
+            {shortTime && (
+              <span className="text-[10px] text-slate-300 border-l border-slate-700/80 pl-1.5 shrink-0 font-mono font-semibold tabular-nums">
+                {shortTime}
+              </span>
+            )}
+          </motion.button>
+
+          {hasMinimizedActiveRide && onOpenActiveRide && (
+            <motion.button
+              initial={{ opacity: 0, scale: 0.92 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.92 }}
+              whileTap={{ scale: 0.97 }}
+              onClick={() => {
+                haptic.selection();
+                onOpenActiveRide();
+              }}
+              className="w-full min-w-0 h-9 px-2.5 rounded-xl flex items-center justify-between gap-1.5 border bg-emerald-950/95 text-emerald-300 border-emerald-500/50 hover:border-emerald-400 shadow-xs shadow-emerald-500/20 cursor-pointer transition-all"
+              title={t.rideModeTitle}
+            >
+              <span className="flex items-center gap-1.5 min-w-0">
+                <span className="relative flex h-2 w-2 shrink-0">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+                </span>
+                <span className="text-[11px] font-bold tracking-tight text-white truncate">
+                  {t.activeRide}
+                </span>
+              </span>
+
+              {activeRideEta && (
+                <span className="text-[10px] text-emerald-200 border-l border-emerald-600/70 pl-1.5 shrink-0 font-mono font-semibold tabular-nums">
+                  {t.etaCompact} {activeRideEta}
+                </span>
+              )}
+            </motion.button>
+          )}
         </div>
       </header>
 

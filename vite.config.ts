@@ -4,11 +4,14 @@ import path from 'path';
 import {defineConfig} from 'vite';
 import {VitePWA} from 'vite-plugin-pwa';
 
-export default defineConfig(() => {
-  // Support custom base, GitHub Actions auto-detection, or relative base
+export default defineConfig(({ command }) => {
+  // Support custom base, GitHub Actions auto-detection, or relative base for builds
   const ghRepo = process.env.GITHUB_REPOSITORY;
   const repoName = ghRepo ? `/${ghRepo.split('/')[1]}/` : undefined;
-  const basePath = process.env.VITE_BASE || process.env.BASE_URL || repoName || './';
+  const basePath =
+    command === 'serve'
+      ? '/'
+      : process.env.VITE_BASE || process.env.BASE_URL || repoName || './';
 
   return {
     base: basePath,
@@ -17,11 +20,18 @@ export default defineConfig(() => {
       tailwindcss(),
       VitePWA({
         registerType: 'autoUpdate',
-        includeAssets: ['icon.svg'],
+        includeAssets: [
+          'app-icon.png',
+          'apple-touch-icon.png',
+          'pwa-192x192.png',
+          'pwa-512x512.png',
+          'pwa-maskable-512x512.png',
+        ],
         workbox: {
           navigateFallback: null,
         },
         manifest: {
+          id: './',
           name: 'MetroFlow - ÄÄPIZRM Metro Router',
           short_name: 'MetroFlow',
           description: 'Modern iOS-optimized metro trip planner and interactive transit navigator for the ÄÄPIZRM 044 U-Bahn system.',
@@ -32,10 +42,22 @@ export default defineConfig(() => {
           scope: './',
           icons: [
             {
-              src: 'icon.svg',
-              sizes: '192x192 512x512',
-              type: 'image/svg+xml',
+              src: 'pwa-192x192.png',
+              sizes: '192x192',
+              type: 'image/png',
               purpose: 'any',
+            },
+            {
+              src: 'pwa-512x512.png',
+              sizes: '512x512',
+              type: 'image/png',
+              purpose: 'any',
+            },
+            {
+              src: 'pwa-maskable-512x512.png',
+              sizes: '512x512',
+              type: 'image/png',
+              purpose: 'maskable',
             },
           ],
         },

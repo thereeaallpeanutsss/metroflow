@@ -295,6 +295,11 @@ export interface Translations {
   switchIsochroneOrigin: string;
   closeIsochrone: string;
   presetMax: string;
+  etaLabel: string;
+  etaCompact: string;
+  passedLabel: string;
+  currentStopLabel: string;
+  journeyNotStartedHint: string;
 }
 
 export const translations: Record<Language, Translations> = {
@@ -593,6 +598,11 @@ export const translations: Record<Language, Translations> = {
     switchIsochroneOrigin: 'Erreichbarkeit ab hier anzeigen',
     closeIsochrone: 'Isochrone beenden',
     presetMax: 'Max',
+    etaLabel: 'Ankunft',
+    etaCompact: 'Ank.',
+    passedLabel: 'Passiert',
+    currentStopLabel: 'Aktuell',
+    journeyNotStartedHint: 'Tippe auf „Fahrt starten“, um die Live-Begleitung und Ankunftszeit (ETA) zu aktivieren.',
   },
   en: {
     appName: 'MetroFlow',
@@ -889,6 +899,11 @@ export const translations: Record<Language, Translations> = {
     switchIsochroneOrigin: 'Explore reachable from here',
     closeIsochrone: 'Exit Isochrone',
     presetMax: 'Max',
+    etaLabel: 'ETA',
+    etaCompact: 'ETA',
+    passedLabel: 'Passed',
+    currentStopLabel: 'Current',
+    journeyNotStartedHint: 'Tap "Start Journey" to activate live tracking and ETA updates.',
   },
 };
 

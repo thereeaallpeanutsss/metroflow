@@ -307,6 +307,39 @@ export function buildRideSteps(
 }
 
 /**
+ * Computes estimated travel seconds from `fromIndex` to `toIndex` along ride steps,
+ * including transfer walk time (180s) when departing a transfer interchange onto a different line.
+ */
+export function getStepRemainingSeconds(
+  steps: RideStep[],
+  fromIndex: number,
+  toIndex: number
+): number {
+  if (!steps || steps.length === 0 || toIndex <= fromIndex) return 0;
+  let totalSec = 0;
+  const upper = Math.min(toIndex, steps.length - 1);
+  for (let i = Math.max(0, fromIndex); i < upper; i++) {
+    const step = steps[i];
+    totalSec += step.segmentSecondsToNext || 0;
+    if (step.isTransferArrival && step.transferToLineId && step.transferToLineId !== step.lineId) {
+      totalSec += 3 * 60;
+    }
+  }
+  return totalSec;
+}
+
+/**
+ * Computes total remaining travel seconds from `currentStepIndex` to the final destination.
+ */
+export function getRideRemainingSeconds(
+  steps: RideStep[],
+  currentStepIndex: number
+): number {
+  if (!steps || steps.length <= 1) return 0;
+  return getStepRemainingSeconds(steps, currentStepIndex, steps.length - 1);
+}
+
+/**
  * Checks if a specific directed edge on a line is disrupted.
  */
 export function isEdgeDisrupted(

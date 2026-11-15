@@ -9,6 +9,8 @@ import { STATIONS, METRO_LINES } from '../data/metroData';
 import { Language, translations } from '../utils/i18n';
 import {
   getEffectiveSegmentSeconds,
+  getRideRemainingSeconds,
+  getStepRemainingSeconds,
   isCompleteSingleLineRoute,
 } from '../utils/routeFinder';
 import { getSegmentTimeKey } from '../services/travelTimesService';
@@ -65,6 +67,14 @@ function formatSecondsCompact(totalSeconds: number): string {
   return `${mins}m ${String(secs).padStart(2, '0')}s`;
 }
 
+function formatEtaTime(ms: number, language: Language): string {
+  return new Date(ms).toLocaleTimeString(language === 'de' ? 'de-DE' : 'en-US', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+}
+
 export const RideModeModal: React.FC<RideModeModalProps> = ({
   language,
   rideState,
@@ -85,6 +95,10 @@ export const RideModeModal: React.FC<RideModeModalProps> = ({
     route,
     steps,
     currentStepIndex,
+    startedAt,
+    journeyStarted,
+    lastReportedAt,
+    reportedTimestamps,
     loggingEnabled,
     loggingStatus,
     segmentTimerStartedAt,
@@ -95,13 +109,16 @@ export const RideModeModal: React.FC<RideModeModalProps> = ({
   const isRunningTimer = loggingEnabled && loggingStatus === 'running' && segmentTimerStartedAt !== null;
 
   useEffect(() => {
-    if (!isRunningTimer) return;
+    if (!isRunningTimer && journeyStarted) return;
     setNowMs(Date.now());
-    const timer = setInterval(() => {
-      setNowMs(Date.now());
-    }, 100);
+    const timer = setInterval(
+      () => {
+        setNowMs(Date.now());
+      },
+      isRunningTimer ? 100 : 5000
+    );
     return () => clearInterval(timer);
-  }, [isRunningTimer, segmentTimerStartedAt]);
+  }, [isRunningTimer, segmentTimerStartedAt, journeyStarted]);
 
   const currentStep = steps[currentStepIndex] || steps[0];
   const nextStep = currentStepIndex < steps.length - 1 ? steps[currentStepIndex + 1] : null;
@@ -114,17 +131,18 @@ export const RideModeModal: React.FC<RideModeModalProps> = ({
     return Math.min(100, Math.max(0, Math.round((currentStepIndex / (steps.length - 1)) * 100)));
   }, [currentStepIndex, steps.length]);
 
+  const totalRemainingSeconds = useMemo(
+    () => getRideRemainingSeconds(steps, currentStepIndex),
+    [steps, currentStepIndex]
+  );
+
   const remainingMinutes = useMemo(() => {
-    if (isFinalStop) return 0;
-    let totalSec = 0;
-    for (let i = currentStepIndex; i < steps.length - 1; i++) {
-      totalSec += steps[i].segmentSecondsToNext || 0;
-      if (steps[i + 1]?.isTransferArrival) {
-        totalSec += 3 * 60;
-      }
-    }
-    return Math.max(1, Math.round((totalSec / 60) * 10) / 10);
-  }, [currentStepIndex, isFinalStop, steps]);
+    if (isFinalStop || totalRemainingSeconds <= 0) return 0;
+    return Math.max(1, Math.round((totalRemainingSeconds / 60) * 10) / 10);
+  }, [isFinalStop, totalRemainingSeconds]);
+
+  const anchorMs = journeyStarted ? lastReportedAt || startedAt || nowMs : nowMs;
+  const finalEtaText = formatEtaTime(anchorMs + totalRemainingSeconds * 1000, language);
 
   const completeness = useMemo(() => isCompleteSingleLineRoute(route), [route]);
 
@@ -140,19 +158,59 @@ export const RideModeModal: React.FC<RideModeModalProps> = ({
   const liveElapsedMs =
     isRunningTimer && segmentTimerStartedAt !== null ? Math.max(0, nowMs - segmentTimerStartedAt) : 0;
 
-  // Normal passenger step navigation
-  const handleStepChange = (targetIdx: number) => {
-    if (isRunningTimer) return;
-    const clamped = Math.max(0, Math.min(steps.length - 1, targetIdx));
-    haptic.selection();
+  // Explicitly start the journey from the first station
+  const handleActivateJourney = () => {
+    const now = Date.now();
+    haptic.routeCalculated();
+    setNowMs(now);
     onUpdateRideState((prev) =>
       prev
         ? {
             ...prev,
-            currentStepIndex: clamped,
+            journeyStarted: true,
+            startedAt: now,
+            lastReportedAt: now,
+            reportedTimestamps: { 0: now },
+            currentStepIndex: 0,
           }
         : null
     );
+  };
+
+  // Normal passenger step navigation (re-anchors ETA on every reported stop)
+  const handleStepChange = (targetIdx: number) => {
+    if (!journeyStarted || isRunningTimer) return;
+    const clamped = Math.max(0, Math.min(steps.length - 1, targetIdx));
+    const now = Date.now();
+    haptic.selection();
+    setNowMs(now);
+    onUpdateRideState((prev) => {
+      if (!prev) return null;
+      const nextTimestamps: Record<number, number> = {};
+      for (const [k, v] of Object.entries(prev.reportedTimestamps || {})) {
+        const idxNum = Number(k);
+        if (idxNum < clamped) {
+          nextTimestamps[idxNum] = v;
+        }
+      }
+      nextTimestamps[clamped] = now;
+      return {
+        ...prev,
+        currentStepIndex: clamped,
+        lastReportedAt: now,
+        reportedTimestamps: nextTimestamps,
+      };
+    });
+  };
+
+  // Closing the tracker before starting the journey discards it cleanly
+  const handleDismiss = () => {
+    haptic.light();
+    if (!journeyStarted) {
+      onEndRide();
+    } else {
+      onMinimize();
+    }
   };
 
   // Toggle Admin Travel Time Logging
@@ -177,7 +235,7 @@ export const RideModeModal: React.FC<RideModeModalProps> = ({
     });
   };
 
-  // Admin Logging: Start timer at first station
+  // Admin Logging: Start timer at first station (also marks journey as started)
   const handleStartLoggingTimer = () => {
     if (!isAdmin || !completeness.eligible) return;
     haptic.routeCalculated();
@@ -187,6 +245,10 @@ export const RideModeModal: React.FC<RideModeModalProps> = ({
       prev
         ? {
             ...prev,
+            journeyStarted: true,
+            startedAt: startTime,
+            lastReportedAt: startTime,
+            reportedTimestamps: { 0: startTime },
             currentStepIndex: 0,
             loggingStatus: 'running',
             segmentTimerStartedAt: startTime,
@@ -197,7 +259,7 @@ export const RideModeModal: React.FC<RideModeModalProps> = ({
     );
   };
 
-  // Admin Logging: Station Passed button
+  // Admin Logging: Station Passed button (re-anchors ETA on every passed station)
   const handleStationPassed = () => {
     if (!isAdmin || !isRunningTimer || !currentStep || !nextStep || segmentTimerStartedAt === null) {
       return;
@@ -239,6 +301,12 @@ export const RideModeModal: React.FC<RideModeModalProps> = ({
       if (!prev) return null;
       return {
         ...prev,
+        journeyStarted: true,
+        lastReportedAt: now,
+        reportedTimestamps: {
+          ...(prev.reportedTimestamps || {}),
+          [nextIdx]: now,
+        },
         currentStepIndex: nextIdx,
         loggingStatus: reachedFinal ? 'completed' : 'running',
         segmentTimerStartedAt: reachedFinal ? null : now,
@@ -309,15 +377,12 @@ export const RideModeModal: React.FC<RideModeModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
-      {/* Backdrop - clicking minimizes instead of ending ride */}
+      {/* Backdrop - clicking closes/discards unstarted ride, or minimizes active ride */}
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        onClick={() => {
-          haptic.light();
-          onMinimize();
-        }}
+        onClick={handleDismiss}
         className="absolute inset-0 bg-black/65 backdrop-blur-md"
       />
 
@@ -354,6 +419,9 @@ export const RideModeModal: React.FC<RideModeModalProps> = ({
                     </span>
                   );
                 })}
+                <span className="px-1.5 py-0.5 rounded-md bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/25 text-[10px] font-mono font-bold tabular-nums">
+                  {t.etaCompact} {finalEtaText}
+                </span>
               </div>
               <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
                 {originStation?.name} ➔ {destStation?.name}
@@ -366,7 +434,11 @@ export const RideModeModal: React.FC<RideModeModalProps> = ({
               type="button"
               onClick={() => {
                 haptic.selection();
-                onMinimize();
+                if (!journeyStarted) {
+                  onEndRide();
+                } else {
+                  onMinimize();
+                }
                 onViewOnMap();
               }}
               className="px-2.5 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/60 dark:hover:bg-blue-900/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800/60 text-[11px] font-bold flex items-center gap-1 transition cursor-pointer"
@@ -378,10 +450,7 @@ export const RideModeModal: React.FC<RideModeModalProps> = ({
 
             <button
               type="button"
-              onClick={() => {
-                haptic.light();
-                onMinimize();
-              }}
+              onClick={handleDismiss}
               className="p-1.5 rounded-full text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-200/70 dark:hover:bg-slate-800 transition cursor-pointer"
               title={t.close}
               aria-label={t.close}
@@ -511,7 +580,7 @@ export const RideModeModal: React.FC<RideModeModalProps> = ({
             <>
               {/* Progress Bar & Remaining Countdown Card */}
               <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/70 space-y-3">
-                <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
                   <div className="flex items-center gap-2">
                     <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                       {t.progressLabel}
@@ -520,13 +589,16 @@ export const RideModeModal: React.FC<RideModeModalProps> = ({
                       {progressPercent}%
                     </span>
                   </div>
-                  <div className="flex items-center gap-3 text-xs font-bold">
+                  <div className="flex items-center gap-2.5 text-xs font-bold flex-wrap">
                     <span className="text-slate-600 dark:text-slate-300">
                       {remainingStops} {t.stops}
                     </span>
-                    <span className="text-blue-600 dark:text-blue-400 flex items-center gap-1 font-mono">
+                    <span className="text-blue-600 dark:text-blue-400 flex items-center gap-1 font-mono tabular-nums">
                       <Clock className="w-3.5 h-3.5" />
                       {remainingMinutes} {t.min}
+                    </span>
+                    <span className="px-2 py-0.5 rounded-lg bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 font-mono tabular-nums">
+                      {t.etaCompact} {finalEtaText}
                     </span>
                   </div>
                 </div>
@@ -637,28 +709,46 @@ export const RideModeModal: React.FC<RideModeModalProps> = ({
                 </div>
               )}
 
-              {/* Standard Passenger Navigation Controls (hidden/disabled when stopwatch timer is active) */}
+              {/* Standard Passenger Navigation Controls (hidden when stopwatch logging is active) */}
               {!loggingEnabled && (
-                <div className="grid grid-cols-2 gap-2.5">
-                  <button
-                    type="button"
-                    disabled={currentStepIndex === 0}
-                    onClick={() => handleStepChange(currentStepIndex - 1)}
-                    className="py-2.5 px-3 rounded-2xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold flex items-center justify-center gap-1.5 transition disabled:opacity-40 cursor-pointer"
-                  >
-                    <ChevronLeft className="w-4 h-4" />
-                    <span>{t.prevStop}</span>
-                  </button>
+                <div className="space-y-2">
+                  {!journeyStarted && (
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 px-1">
+                      {t.journeyNotStartedHint}
+                    </p>
+                  )}
+                  <div className="grid grid-cols-2 gap-2.5">
+                    {!journeyStarted ? (
+                      <button
+                        type="button"
+                        onClick={handleActivateJourney}
+                        className="py-2.5 px-3 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold flex items-center justify-center gap-1.5 shadow-md shadow-emerald-600/25 transition active:scale-[0.98] cursor-pointer"
+                      >
+                        <Play className="w-3.5 h-3.5 fill-current" />
+                        <span>{t.startJourney}</span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={currentStepIndex === 0}
+                        onClick={() => handleStepChange(currentStepIndex - 1)}
+                        className="py-2.5 px-3 rounded-2xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold flex items-center justify-center gap-1.5 transition disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                        <span>{t.prevStop}</span>
+                      </button>
+                    )}
 
-                  <button
-                    type="button"
-                    disabled={isFinalStop}
-                    onClick={() => handleStepChange(currentStepIndex + 1)}
-                    className="py-2.5 px-3 rounded-2xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-md shadow-blue-600/20 transition active:scale-[0.98] disabled:opacity-40 cursor-pointer"
-                  >
-                    <span>{t.nextStop}</span>
-                    <ChevronRight className="w-4 h-4" />
-                  </button>
+                    <button
+                      type="button"
+                      disabled={!journeyStarted || isFinalStop}
+                      onClick={() => handleStepChange(currentStepIndex + 1)}
+                      className="py-2.5 px-3 rounded-2xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-md shadow-blue-600/20 transition active:scale-[0.98] disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
+                    >
+                      <span>{t.nextStop}</span>
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
               )}
 
@@ -856,7 +946,18 @@ export const RideModeModal: React.FC<RideModeModalProps> = ({
                     const isPassed = idx < currentStepIndex;
                     const isCurrent = idx === currentStepIndex;
                     const isNext = idx === currentStepIndex + 1;
-                    const clickable = !isRunningTimer && !loggingEnabled;
+                    const clickable = journeyStarted && !isRunningTimer && !loggingEnabled;
+
+                    const remainingFromLastReported =
+                      idx > currentStepIndex
+                        ? getStepRemainingSeconds(steps, currentStepIndex, idx)
+                        : 0;
+                    const stationEtaMs =
+                      idx > currentStepIndex
+                        ? anchorMs + remainingFromLastReported * 1000
+                        : isCurrent
+                        ? anchorMs
+                        : reportedTimestamps?.[idx] ?? null;
 
                     return (
                       <div
@@ -915,7 +1016,7 @@ export const RideModeModal: React.FC<RideModeModalProps> = ({
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-1.5 shrink-0">
+                        <div className="flex items-center gap-2 shrink-0">
                           {line && (
                             <span
                               className="px-1.5 py-0.2 rounded text-[9px] font-bold text-white"
@@ -924,11 +1025,37 @@ export const RideModeModal: React.FC<RideModeModalProps> = ({
                               {line.badge}
                             </span>
                           )}
-                          {idx < steps.length - 1 && (
-                            <span className="text-[10px] font-mono text-slate-400 w-10 text-right">
-                              {formatSecondsCompact(step.segmentSecondsToNext)}
-                            </span>
-                          )}
+
+                          <div className="text-right min-w-[3.6rem] leading-tight">
+                            {idx > currentStepIndex ? (
+                              <>
+                                <div className="text-[11px] font-mono font-bold text-slate-800 dark:text-slate-100 tabular-nums">
+                                  {stationEtaMs !== null ? formatEtaTime(stationEtaMs, language) : '--:--'}
+                                </div>
+                                <div className="text-[10px] font-mono text-blue-600 dark:text-blue-400 tabular-nums">
+                                  +{formatSecondsCompact(remainingFromLastReported)}
+                                </div>
+                              </>
+                            ) : isCurrent ? (
+                              <>
+                                <div className="text-[11px] font-mono font-bold text-emerald-600 dark:text-emerald-400 tabular-nums">
+                                  {stationEtaMs !== null ? formatEtaTime(stationEtaMs, language) : '--:--'}
+                                </div>
+                                <div className="text-[9px] font-bold uppercase tracking-tight text-emerald-600 dark:text-emerald-400">
+                                  {journeyStarted ? t.currentStopLabel : language === 'de' ? 'Start' : 'Start'}
+                                </div>
+                              </>
+                            ) : (
+                              <>
+                                <div className="text-[11px] font-mono text-slate-400 tabular-nums">
+                                  {stationEtaMs !== null ? formatEtaTime(stationEtaMs, language) : ''}
+                                </div>
+                                <div className="text-[9px] font-semibold text-slate-400">
+                                  {t.passedLabel}
+                                </div>
+                              </>
+                            )}
+                          </div>
                         </div>
                       </div>
                     );
@@ -939,14 +1066,11 @@ export const RideModeModal: React.FC<RideModeModalProps> = ({
           )}
         </div>
 
-        {/* Footer Actions: Close (keeps Active Ride) vs End Ride (destroys ride) */}
+        {/* Footer Actions: Close (keeps Active Ride only once started) vs End Ride (enabled once started) */}
         <div className="px-4 sm:px-5 py-3.5 border-t border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-950/60 flex items-center justify-between gap-2.5 shrink-0">
           <button
             type="button"
-            onClick={() => {
-              haptic.light();
-              onMinimize();
-            }}
+            onClick={handleDismiss}
             className="flex-1 py-2.5 px-3 rounded-xl bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100 text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer"
           >
             <X className="w-3.5 h-3.5" />
@@ -955,11 +1079,13 @@ export const RideModeModal: React.FC<RideModeModalProps> = ({
 
           <button
             type="button"
+            disabled={!journeyStarted}
             onClick={() => {
+              if (!journeyStarted) return;
               haptic.warning();
               setShowEndRideConfirm(true);
             }}
-            className="flex-1 py-2.5 px-3 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-extrabold flex items-center justify-center gap-1.5 shadow-md shadow-rose-600/20 transition cursor-pointer"
+            className="flex-1 py-2.5 px-3 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-extrabold flex items-center justify-center gap-1.5 shadow-md shadow-rose-600/20 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-rose-600"
           >
             <Power className="w-3.5 h-3.5" />
             <span>{t.endRide}</span>

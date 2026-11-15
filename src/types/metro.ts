@@ -222,7 +222,10 @@ export interface ActiveRideState {
   steps: RideStep[];
   currentStepIndex: number;
   isMinimized: boolean;
+  journeyStarted: boolean;
   startedAt: number;
+  lastReportedAt: number | null;
+  reportedTimestamps: Record<number, number>;
   loggingEnabled: boolean;
   loggingStatus: LoggingStatus;
   segmentTimerStartedAt: number | null;
