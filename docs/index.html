@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <script>
+      (function() {
+        // Fix for GitHub Pages: ensure trailing slash so relative paths resolve to the repo subpath
+        if (
+          window.location.pathname &&
+          !window.location.pathname.endsWith('/') &&
+          !window.location.pathname.split('/').pop().includes('.')
+        ) {
+          window.location.replace(window.location.pathname + '/' + window.location.search + window.location.hash);
+          return;
+        }
+
+        try {
+          var saved = localStorage.getItem('metroflow_theme');
+          if (saved === 'light') {
+            document.documentElement.classList.remove('dark');
+          } else {
+            document.documentElement.classList.add('dark');
+          }
+        } catch(e) {}
+
+        // Suppress Vite HMR WebSocket connection warnings & unhandled rejections in sandboxed iframe preview
+        window.addEventListener('unhandledrejection', function(event) {
+          var reason = event.reason;
+          var msg = (reason && (reason.message || reason.stack || String(reason))) || '';
+          if (
+            msg.indexOf('WebSocket') !== -1 ||
+            msg.indexOf('vite') !== -1 ||
+            (reason && reason.stack && reason.stack.indexOf('@vite/client') !== -1)
+          ) {
+            event.preventDefault();
+            event.stopImmediatePropagation && event.stopImmediatePropagation();
+            return;
+          }
+        });
+
+        window.addEventListener('error', function(event) {
+          var msg = (event.message || (event.error && event.error.message) || '') + '';
+          var src = (event.filename || '') + '';
+          if (
+            msg.indexOf('WebSocket') !== -1 ||
+            src.indexOf('@vite/client') !== -1 ||
+            msg.indexOf('[vite]') !== -1
+          ) {
+            event.preventDefault();
+            event.stopImmediatePropagation && event.stopImmediatePropagation();
+            return;
+          }
+        });
+
+        var origWarn = console.warn;
+        var origError = console.error;
+        console.warn = function() {
+          if (arguments.length > 0 && typeof arguments[0] === 'string' && (arguments[0].indexOf('[vite]') !== -1 || arguments[0].indexOf('WebSocket') !== -1)) {
+            return;
+          }
+          return origWarn.apply(console, arguments);
+        };
+        console.error = function() {
+          if (arguments.length > 0 && typeof arguments[0] === 'string' && (arguments[0].indexOf('[vite]') !== -1 || arguments[0].indexOf('WebSocket') !== -1)) {
+            return;
+          }
+          return origError.apply(console, arguments);
+        };
+      })();
+    </script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <title>MetroFlow - ÄÄPIZRM Metro Router</title>
+    <meta name="description" content="Modern iOS-optimized metro trip planner and interactive transit navigator for the ÄÄPIZRM 044 U-Bahn system." />
+    <meta property="og:title" content="MetroFlow - ÄÄPIZRM Metro Router" />
+    <meta property="og:description" content="Modern iOS-optimized metro trip planner and interactive transit navigator for the ÄÄPIZRM 044 U-Bahn system." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="theme-color" content="#0f172a" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="MetroFlow" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
+    <link rel="icon" type="image/png" sizes="512x512" href="./app-icon.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="./pwa-192x192.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png" />
+    <script type="module" crossorigin src="/metroflow/assets/index-DnSDTI1G.js"></script>
+    <link rel="stylesheet" crossorigin href="/metroflow/assets/index-D6jhxaPt.css">
+  <link rel="manifest" href="/metroflow/manifest.webmanifest"></head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>
+

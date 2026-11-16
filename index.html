@@ -14,16 +14,6 @@
           return;
         }
 
-        // If GitHub Pages is deployed from root (/), automatically redirect to the compiled /docs/ bundle
-        if (
-          window.location.hostname.includes('github.io') &&
-          !window.location.pathname.includes('/docs')
-        ) {
-          var basePath = window.location.pathname.replace(/\/+$/, '');
-          window.location.replace(basePath + '/docs/' + window.location.search + window.location.hash);
-          return;
-        }
-
         try {
           var saved = localStorage.getItem('metroflow_theme');
           if (saved === 'light') {
