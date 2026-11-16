@@ -8,6 +8,12 @@ const dist = path.join(root, 'dist');
 const docs = path.join(root, 'docs');
 
 if (fs.existsSync(dist)) {
+  // Exclude unused chat-attachment screenshots from production deployment bundles
+  const distAiStudioAssets = path.join(dist, 'assets', 'aistudio');
+  if (fs.existsSync(distAiStudioAssets)) {
+    fs.rmSync(distAiStudioAssets, { recursive: true, force: true });
+  }
+
   fs.rmSync(docs, { recursive: true, force: true });
   fs.cpSync(dist, docs, { recursive: true });
 
