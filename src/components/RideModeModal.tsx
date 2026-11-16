@@ -48,6 +48,7 @@ interface RideModeModalProps {
   onViewOnMap: () => void;
   onUpdateRideState: React.Dispatch<React.SetStateAction<ActiveRideState | null>>;
   onConfirmSaveTravelTimes: (logs: MeasuredSegmentLog[]) => Promise<void>;
+  isTransitTheme?: boolean;
 }
 
 function formatTimerMs(ms: number): string {
@@ -85,6 +86,7 @@ export const RideModeModal: React.FC<RideModeModalProps> = ({
   onViewOnMap,
   onUpdateRideState,
   onConfirmSaveTravelTimes,
+  isTransitTheme = false,
 }) => {
   const t = translations[language];
   const [nowMs, setNowMs] = useState<number>(() => Date.now());
@@ -393,10 +395,20 @@ export const RideModeModal: React.FC<RideModeModalProps> = ({
         exit={{ opacity: 0, y: 30, scale: 0.96 }}
         transition={{ type: 'spring', stiffness: 420, damping: 32 }}
         onClick={(e) => e.stopPropagation()}
-        className="relative z-10 w-full sm:max-w-xl max-h-[92dvh] flex flex-col rounded-t-3xl sm:rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden text-slate-900 dark:text-slate-100"
+        className={`transit-custom-surface relative z-10 w-full sm:max-w-xl max-h-[92dvh] flex flex-col rounded-t-3xl sm:rounded-3xl border shadow-2xl overflow-hidden text-slate-900 dark:text-slate-100 ${
+          isTransitTheme
+            ? 'bg-white dark:bg-[#121722] border-slate-200/90 dark:border-slate-800/90'
+            : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800'
+        }`}
       >
         {/* Top Header */}
-        <div className="px-4 sm:px-5 py-3.5 border-b border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-950/60 flex items-center justify-between gap-2 shrink-0">
+        <div
+          className={`px-4 sm:px-5 py-3.5 border-b flex items-center justify-between gap-2 shrink-0 ${
+            isTransitTheme
+              ? 'border-slate-200/80 dark:border-slate-800/80 bg-slate-50/90 dark:bg-[#0f141e]'
+              : 'border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-950/60'
+          }`}
+        >
           <div className="flex items-center gap-2.5 min-w-0">
             <div className="w-9 h-9 rounded-2xl bg-gradient-to-tr from-emerald-500 to-teal-600 text-white flex items-center justify-center shadow-md shadow-emerald-500/25 shrink-0">
               <Navigation className="w-4 h-4" />
@@ -579,7 +591,13 @@ export const RideModeModal: React.FC<RideModeModalProps> = ({
             /* ================= ACTIVE RIDE TRACKER MAIN BODY ================= */
             <>
               {/* Progress Bar & Remaining Countdown Card */}
-              <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/70 space-y-3">
+              <div
+                className={`p-4 rounded-2xl border space-y-3 ${
+                  isTransitTheme
+                    ? 'transit-custom-surface bg-slate-50/90 dark:bg-[#181f2e] border-slate-200/80 dark:border-slate-800/90'
+                    : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200/80 dark:border-slate-700/70'
+                }`}
+              >
                 <div className="flex items-center justify-between gap-2 flex-wrap">
                   <div className="flex items-center gap-2">
                     <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
@@ -618,7 +636,13 @@ export const RideModeModal: React.FC<RideModeModalProps> = ({
 
                 {/* Current Station -> Next Station Display */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
-                  <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 flex items-center gap-2.5">
+                  <div
+                    className={`p-2.5 rounded-xl border flex items-center gap-2.5 ${
+                      isTransitTheme
+                        ? 'bg-white dark:bg-[#111724] border-slate-200/80 dark:border-slate-800/80'
+                        : 'bg-white dark:bg-slate-900 border-slate-200/80 dark:border-slate-800'
+                    }`}
+                  >
                     <span
                       className="w-3 h-3 rounded-full shrink-0 ring-4 ring-emerald-500/20"
                       style={{ backgroundColor: currentLine?.color || '#10B981' }}
@@ -633,7 +657,13 @@ export const RideModeModal: React.FC<RideModeModalProps> = ({
                     </div>
                   </div>
 
-                  <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 flex items-center gap-2.5">
+                  <div
+                    className={`p-2.5 rounded-xl border flex items-center gap-2.5 ${
+                      isTransitTheme
+                        ? 'bg-white dark:bg-[#111724] border-slate-200/80 dark:border-slate-800/80'
+                        : 'bg-white dark:bg-slate-900 border-slate-200/80 dark:border-slate-800'
+                    }`}
+                  >
                     {isFinalStop ? (
                       <Flag className="w-4 h-4 text-emerald-500 shrink-0" />
                     ) : (
@@ -653,7 +683,13 @@ export const RideModeModal: React.FC<RideModeModalProps> = ({
 
               {/* Pre-Transfer Warning (1 stop BEFORE transfer) */}
               {currentStep?.isTransferBeforeNextStop && nextStation && transferTargetLine && (
-                <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/45 border-2 border-amber-400 dark:border-amber-600/70 flex items-start gap-3">
+                <div
+                  className={`p-3.5 rounded-2xl flex items-start gap-3 ${
+                    isTransitTheme
+                      ? 'transit-custom-surface bg-white dark:bg-[#1d1712] border border-amber-300/80 dark:border-amber-500/45 shadow-xs'
+                      : 'bg-amber-50 dark:bg-amber-950/45 border-2 border-amber-400 dark:border-amber-600/70'
+                  }`}
+                >
                   <div className="p-2 rounded-xl bg-amber-500 text-white shrink-0 shadow-xs">
                     <AlertTriangle className="w-4 h-4" />
                   </div>
@@ -672,7 +708,13 @@ export const RideModeModal: React.FC<RideModeModalProps> = ({
 
               {/* At-Transfer Station Banner */}
               {currentStep?.isTransferArrival && transferTargetLine && (
-                <div className="p-3.5 rounded-2xl bg-blue-50 dark:bg-blue-950/45 border-2 border-blue-400 dark:border-blue-600/70 flex items-start gap-3">
+                <div
+                  className={`p-3.5 rounded-2xl flex items-start gap-3 ${
+                    isTransitTheme
+                      ? 'transit-custom-surface bg-white dark:bg-[#131c2b] border border-blue-300/80 dark:border-blue-500/45 shadow-xs'
+                      : 'bg-blue-50 dark:bg-blue-950/45 border-2 border-blue-400 dark:border-blue-600/70'
+                  }`}
+                >
                   <div className="p-2 rounded-xl bg-blue-600 text-white shrink-0 shadow-xs">
                     <Repeat className="w-4 h-4" />
                   </div>
@@ -754,7 +796,13 @@ export const RideModeModal: React.FC<RideModeModalProps> = ({
 
               {/* ==================== ADMIN-ONLY TRAVEL TIME LOGGING PANEL ==================== */}
               {isAdmin && (
-                <div className="p-4 rounded-2xl bg-indigo-50/70 dark:bg-indigo-950/30 border-2 border-indigo-200 dark:border-indigo-800/70 space-y-3">
+                <div
+                  className={`p-4 rounded-2xl space-y-3 ${
+                    isTransitTheme
+                      ? 'transit-custom-surface bg-indigo-50/50 dark:bg-[#161b2e] border border-indigo-200/80 dark:border-indigo-500/25'
+                      : 'bg-indigo-50/70 dark:bg-indigo-950/30 border-2 border-indigo-200 dark:border-indigo-800/70'
+                  }`}
+                >
                   <div className="flex items-start justify-between gap-3">
                     <div className="space-y-0.5 min-w-0 flex-1">
                       <div className="flex items-center gap-1.5">
@@ -792,7 +840,13 @@ export const RideModeModal: React.FC<RideModeModalProps> = ({
 
                   {/* Strict Single Complete Line Gate Notice */}
                   {!completeness.eligible && (
-                    <div className="p-2.5 rounded-xl bg-white/80 dark:bg-slate-900/80 border border-amber-300 dark:border-amber-700/60 text-[11px] text-amber-900 dark:text-amber-200 flex items-start gap-2">
+                    <div
+                      className={`p-2.5 rounded-xl border text-[11px] flex items-start gap-2 ${
+                        isTransitTheme
+                          ? 'bg-white/90 dark:bg-[#111724] border-amber-300/70 dark:border-amber-500/30 text-amber-900 dark:text-amber-200'
+                          : 'bg-white/80 dark:bg-slate-900/80 border-amber-300 dark:border-amber-700/60 text-amber-900 dark:text-amber-200'
+                      }`}
+                    >
                       <Lock className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
                       <span>
                         {completeness.reason === 'multi-line'
@@ -939,10 +993,17 @@ export const RideModeModal: React.FC<RideModeModalProps> = ({
                   {t.detailedPlan}
                 </span>
 
-                <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/30 p-3 space-y-1">
+                <div
+                  className={`rounded-2xl border p-3 ${
+                    isTransitTheme
+                      ? 'transit-custom-surface border-slate-200/90 dark:border-slate-800/90 bg-slate-50/80 dark:bg-[#0f141e] space-y-0.5'
+                      : 'border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/30 space-y-1'
+                  }`}
+                >
                   {steps.map((step, idx) => {
                     const st = STATIONS[step.stationId];
                     const line = METRO_LINES[step.lineId];
+                    const prevLine = idx > 0 ? METRO_LINES[steps[idx - 1].lineId] : null;
                     const isPassed = idx < currentStepIndex;
                     const isCurrent = idx === currentStepIndex;
                     const isNext = idx === currentStepIndex + 1;
@@ -963,36 +1024,94 @@ export const RideModeModal: React.FC<RideModeModalProps> = ({
                       <div
                         key={`${step.stationId}-${idx}`}
                         onClick={() => clickable && handleStepChange(idx)}
-                        className={`flex items-center justify-between gap-2 px-2.5 py-2 rounded-xl transition ${
-                          clickable ? 'cursor-pointer hover:bg-white dark:hover:bg-slate-900' : ''
+                        className={`relative flex items-center justify-between gap-2 px-2.5 py-2 rounded-xl transition ${
+                          clickable
+                            ? isTransitTheme
+                              ? 'cursor-pointer hover:bg-white dark:hover:bg-[#181f2e]'
+                              : 'cursor-pointer hover:bg-white dark:hover:bg-slate-900'
+                            : ''
                         } ${
                           isCurrent
-                            ? 'bg-white dark:bg-slate-900 border border-emerald-400/70 shadow-xs'
+                            ? isTransitTheme
+                              ? 'bg-emerald-50/85 dark:bg-emerald-950/35 border border-emerald-400/75 dark:border-emerald-500/45 shadow-xs'
+                              : 'bg-white dark:bg-slate-900 border border-emerald-400/70 shadow-xs'
+                            : isTransitTheme && step.isTransferArrival
+                            ? 'bg-rose-50/75 dark:bg-rose-950/25'
                             : isNext
-                            ? 'bg-blue-50/60 dark:bg-blue-950/20'
+                            ? isTransitTheme
+                              ? 'bg-blue-50/60 dark:bg-blue-950/20'
+                              : 'bg-blue-50/60 dark:bg-blue-950/20'
                             : ''
                         }`}
                       >
-                        <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                          <div
-                            className={`w-3.5 h-3.5 rounded-full flex items-center justify-center shrink-0 ${
-                              isCurrent
-                                ? 'ring-4 ring-emerald-500/25'
-                                : isPassed
-                                ? 'opacity-50'
-                                : ''
-                            }`}
-                            style={{
-                              backgroundColor: isCurrent
-                                ? '#10B981'
-                                : isPassed
-                                ? line?.color || '#64748B'
-                                : 'transparent',
-                              border: `2px solid ${line?.color || '#64748B'}`,
-                            }}
-                          >
-                            {isPassed && <Check className="w-2.5 h-2.5 text-white" />}
-                          </div>
+                        <div className="flex items-center gap-2.5 min-w-0 flex-1 relative">
+                          {/* Continuous Vertical Metro Rail Connectors (Transit Theme) */}
+                          {isTransitTheme && (
+                            <div
+                              aria-hidden="true"
+                              className="relative flex items-center justify-center w-3.5 self-stretch shrink-0"
+                            >
+                              {idx > 0 && (
+                                <span
+                                  className="absolute left-1/2 -translate-x-1/2 -top-2.5 bottom-1/2 w-[2.5px] rounded-full"
+                                  style={{
+                                    backgroundColor: prevLine?.color || line?.color || '#64748B',
+                                    opacity: isPassed ? 0.45 : 0.85,
+                                  }}
+                                />
+                              )}
+                              {idx < steps.length - 1 && (
+                                <span
+                                  className="absolute left-1/2 -translate-x-1/2 top-1/2 -bottom-2.5 w-[2.5px] rounded-full"
+                                  style={{
+                                    backgroundColor: line?.color || '#64748B',
+                                    opacity: isPassed ? 0.45 : 0.85,
+                                  }}
+                                />
+                              )}
+                              <div
+                                className={`relative z-10 w-3.5 h-3.5 rounded-full flex items-center justify-center shrink-0 ${
+                                  isCurrent
+                                    ? 'ring-4 ring-emerald-500/25'
+                                    : isPassed
+                                    ? 'opacity-65'
+                                    : ''
+                                }`}
+                                style={{
+                                  backgroundColor: isCurrent
+                                    ? '#10B981'
+                                    : isPassed
+                                    ? line?.color || '#64748B'
+                                    : 'var(--transit-node-bg, #ffffff)',
+                                  border: `2.5px solid ${line?.color || '#64748B'}`,
+                                }}
+                              >
+                                {isPassed && <Check className="w-2.5 h-2.5 text-white" />}
+                              </div>
+                            </div>
+                          )}
+
+                          {!isTransitTheme && (
+                            <div
+                              className={`w-3.5 h-3.5 rounded-full flex items-center justify-center shrink-0 ${
+                                isCurrent
+                                  ? 'ring-4 ring-emerald-500/25'
+                                  : isPassed
+                                  ? 'opacity-50'
+                                  : ''
+                              }`}
+                              style={{
+                                backgroundColor: isCurrent
+                                  ? '#10B981'
+                                  : isPassed
+                                  ? line?.color || '#64748B'
+                                  : 'transparent',
+                                border: `2px solid ${line?.color || '#64748B'}`,
+                              }}
+                            >
+                              {isPassed && <Check className="w-2.5 h-2.5 text-white" />}
+                            </div>
+                          )}
 
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-1.5">
@@ -1067,7 +1186,13 @@ export const RideModeModal: React.FC<RideModeModalProps> = ({
         </div>
 
         {/* Footer Actions: Close (keeps Active Ride only once started) vs End Ride (enabled once started) */}
-        <div className="px-4 sm:px-5 py-3.5 border-t border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-950/60 flex items-center justify-between gap-2.5 shrink-0">
+        <div
+          className={`px-4 sm:px-5 py-3.5 border-t flex items-center justify-between gap-2.5 shrink-0 ${
+            isTransitTheme
+              ? 'border-slate-200/80 dark:border-slate-800/80 bg-slate-50/90 dark:bg-[#0f141e]'
+              : 'border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-950/60'
+          }`}
+        >
           <button
             type="button"
             onClick={handleDismiss}

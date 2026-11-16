@@ -221,6 +221,11 @@ export interface Translations {
   uiDesignIOSBadge: string;
   uiDesignMinecraft: string;
   uiDesignMinecraftBadge: string;
+  uiDesignTransit: string;
+  uiDesignTransitSub: string;
+  uiDesignTransitBadge: string;
+  transitBgAnimation: string;
+  transitBgAnimationDesc: string;
   startupDisruptionOverview: string;
   startupDisruptionOverviewDesc: string;
   refreshDataButton: string;
@@ -300,6 +305,21 @@ export interface Translations {
   passedLabel: string;
   currentStopLabel: string;
   journeyNotStartedHint: string;
+  measurementHistoryTitle: string;
+  measurementHistoryDesc: string;
+  lastTimedLabel: string;
+  notTimedYet: string;
+  measuredCountLabel: string;
+  defaultLabel: string;
+  overrideLabel: string;
+  resetLineBtn: string;
+  confirmResetLineTitle: string;
+  confirmResetLineMessage: string;
+  confirmResetLineBtn: string;
+  resetLineSuccess: string;
+  filterAllLines: string;
+  filterTimedOnly: string;
+  segmentComparisonHeader: string;
 }
 
 export const translations: Record<Language, Translations> = {
@@ -518,12 +538,17 @@ export const translations: Record<Language, Translations> = {
     tabBarStyleIOS26: 'iOS 26 Glas-Dock',
     tabBarStyleClassic: 'Klassische Leiste',
     uiDesignSetting: 'Benutzeroberfläche & Design',
-    uiDesignDesc: 'Wähle zwischen dem klassischen MetroFlow Design und dem komplett überarbeiteten iOS-Design (iOS Neo).',
+    uiDesignDesc: 'Wähle zwischen dem neuen MetroFlow Transit Design und MetroFlow Klassisch.',
     uiDesignClassic: 'MetroFlow Klassisch',
     uiDesignIOS: 'iOS Overhaul',
     uiDesignIOSBadge: 'iOS Design',
     uiDesignMinecraft: 'Minecraft Edition',
     uiDesignMinecraftBadge: 'Minecraft Bedrock',
+    uiDesignTransit: 'MetroFlow Transit',
+    uiDesignTransitSub: 'App-Icon Design',
+    uiDesignTransitBadge: 'Transit 044',
+    transitBgAnimation: 'Animierter Metro-Hintergrund',
+    transitBgAnimationDesc: 'Fährt dezente U-Bahn-Linien im Hintergrund entlang (Standard: Aus für maximale Performance).',
     startupDisruptionOverview: 'Störungsübersicht beim App-Start',
     startupDisruptionOverviewDesc: 'Zeigt beim Starten der App automatisch ein kompaktes Lagebild aller aktuellen Störungen an.',
     refreshDataButton: 'Daten jetzt aktualisieren',
@@ -603,6 +628,21 @@ export const translations: Record<Language, Translations> = {
     passedLabel: 'Passiert',
     currentStopLabel: 'Aktuell',
     journeyNotStartedHint: 'Tippe auf „Fahrt starten“, um die Live-Begleitung und Ankunftszeit (ETA) zu aktivieren.',
+    measurementHistoryTitle: 'Messverlauf & Linien-Reset',
+    measurementHistoryDesc: 'Sieh nach, wann jede Linie zuletzt gemessen wurde, vergleiche einzelne Abschnitte mit den Standardzeiten und setze einzelne Linien zurück.',
+    lastTimedLabel: 'Zuletzt gemessen',
+    notTimedYet: 'Noch nicht gemessen (Standard)',
+    measuredCountLabel: 'gemessen',
+    defaultLabel: 'Standard',
+    overrideLabel: 'Gemessen',
+    resetLineBtn: 'Linie zurücksetzen',
+    confirmResetLineTitle: 'Linien-Fahrzeiten zurücksetzen?',
+    confirmResetLineMessage: 'Alle gemessenen Zeiten für diese Linie werden gelöscht und durch die Standardwerte ersetzt.',
+    confirmResetLineBtn: 'Ja, zurücksetzen',
+    resetLineSuccess: 'Fahrzeiten für die Linie auf Standard zurückgesetzt.',
+    filterAllLines: 'Alle Linien',
+    filterTimedOnly: 'Nur gemessene',
+    segmentComparisonHeader: 'Abschnitt',
   },
   en: {
     appName: 'MetroFlow',
@@ -819,12 +859,17 @@ export const translations: Record<Language, Translations> = {
     tabBarStyleIOS26: 'iOS 26 Glass Dock',
     tabBarStyleClassic: 'Classic Bar',
     uiDesignSetting: 'Interface Design System',
-    uiDesignDesc: 'Switch between classic MetroFlow layout and the completely overhauled Apple iOS-inspired design (iOS Neo).',
+    uiDesignDesc: 'Choose between the new MetroFlow Transit interface and MetroFlow Classic.',
     uiDesignClassic: 'MetroFlow Classic',
     uiDesignIOS: 'iOS Overhaul',
     uiDesignIOSBadge: 'iOS Design',
     uiDesignMinecraft: 'Minecraft Edition',
     uiDesignMinecraftBadge: 'Minecraft Bedrock',
+    uiDesignTransit: 'MetroFlow Transit',
+    uiDesignTransitSub: 'App-Icon Aesthetic',
+    uiDesignTransitBadge: 'Transit 044',
+    transitBgAnimation: 'Animated Metro Background',
+    transitBgAnimationDesc: 'Animates subtle metro lines driving across the background (Off by default for max performance).',
     startupDisruptionOverview: 'Disruption overview on app launch',
     startupDisruptionOverviewDesc: 'Automatically shows a brief overview of all currently reported disruptions when launching the app.',
     refreshDataButton: 'Update data now',
@@ -904,6 +949,21 @@ export const translations: Record<Language, Translations> = {
     passedLabel: 'Passed',
     currentStopLabel: 'Current',
     journeyNotStartedHint: 'Tap "Start Journey" to activate live tracking and ETA updates.',
+    measurementHistoryTitle: 'Measurement History & Line Reset',
+    measurementHistoryDesc: 'Inspect when each line was last timed, compare individual overrides against defaults, and reset a single line.',
+    lastTimedLabel: 'Last timed',
+    notTimedYet: 'Not timed yet (Default)',
+    measuredCountLabel: 'measured',
+    defaultLabel: 'Default',
+    overrideLabel: 'Measured',
+    resetLineBtn: 'Reset Line',
+    confirmResetLineTitle: 'Reset Line Travel Times?',
+    confirmResetLineMessage: 'All measured overrides for this line will be deleted and reverted to default travel times.',
+    confirmResetLineBtn: 'Yes, Reset Line',
+    resetLineSuccess: 'Travel times for this line reset to defaults.',
+    filterAllLines: 'All Lines',
+    filterTimedOnly: 'Timed Only',
+    segmentComparisonHeader: 'Segment',
   },
 };
 

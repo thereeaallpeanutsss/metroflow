@@ -12,13 +12,14 @@ import {
   Tag,
 } from 'lucide-react';
 import { Language } from '../utils/i18n';
+import { UIThemeMode } from '../types/metro';
 import { haptic } from '../utils/haptics';
 import { CURRENT_VERSION, VERSION_HISTORY, VersionEntry, ReleaseType } from '../data/versionHistory';
 
 interface VersionHistoryViewProps {
   language: Language;
   onBack: () => void;
-  uiTheme?: 'default' | 'ios' | 'minecraft';
+  uiTheme?: UIThemeMode;
 }
 
 export const VersionHistoryView: React.FC<VersionHistoryViewProps> = ({

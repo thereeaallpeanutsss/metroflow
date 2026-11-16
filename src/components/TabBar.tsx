@@ -12,6 +12,7 @@ interface TabBarProps {
   activeTab: AppTab;
   onChangeTab: (tab: AppTab) => void;
   tabBarStyle?: TabBarStyle;
+  isTransitTheme?: boolean;
 }
 
 interface TabLayout {
@@ -25,6 +26,7 @@ export const TabBar: React.FC<TabBarProps> = ({
   activeTab,
   onChangeTab,
   tabBarStyle = 'ios26',
+  isTransitTheme = false,
 }) => {
   const t = translations[language];
 
@@ -315,7 +317,11 @@ export const TabBar: React.FC<TabBarProps> = ({
           right: 0,
           zIndex: 50,
         }}
-        className="fixed bottom-0 left-0 right-0 z-50 bg-white/85 dark:bg-slate-950/85 backdrop-blur-2xl border-t border-slate-200 dark:border-slate-800/80 pb-[max(env(safe-area-inset-bottom),8px)] pt-2 shadow-2xl transition-colors"
+        className={`fixed bottom-0 left-0 right-0 z-50 backdrop-blur-2xl border-t pb-[max(env(safe-area-inset-bottom),8px)] pt-2 shadow-2xl transition-colors ${
+          isTransitTheme
+            ? 'bg-white/95 dark:bg-[#0d121c]/95 border-slate-200/80 dark:border-slate-800/80'
+            : 'bg-white/85 dark:bg-slate-950/85 border-slate-200 dark:border-slate-800/80'
+        }`}
       >
         <div className="max-w-md mx-auto px-4 flex items-center justify-around relative">
           {tabs.map((tab) => {
@@ -392,7 +398,11 @@ export const TabBar: React.FC<TabBarProps> = ({
       <div
         ref={dockRef}
         onPointerDown={handleDockPointerDown}
-        className="relative p-1.5 rounded-full bg-slate-100/75 dark:bg-slate-900/75 backdrop-blur-3xl backdrop-saturate-150 border border-black/5 dark:border-white/10 shadow-[0_12px_36px_rgba(0,0,0,0.1)] dark:shadow-[0_18px_50px_rgba(0,0,0,0.65)] flex items-center justify-center gap-1 overflow-visible touch-none cursor-grab active:cursor-grabbing"
+        className={`relative p-1.5 rounded-full backdrop-blur-3xl backdrop-saturate-150 border flex items-center justify-center gap-1 overflow-visible touch-none cursor-grab active:cursor-grabbing ${
+          isTransitTheme
+            ? 'bg-white/92 dark:bg-[#121722]/92 border-slate-200/90 dark:border-white/12 shadow-[0_12px_36px_rgba(15,23,42,0.12)] dark:shadow-[0_18px_50px_rgba(0,0,0,0.72)]'
+            : 'bg-slate-100/75 dark:bg-slate-900/75 border-black/5 dark:border-white/10 shadow-[0_12px_36px_rgba(0,0,0,0.1)] dark:shadow-[0_18px_50px_rgba(0,0,0,0.65)]'
+        }`}
       >
         {/* Soft bevel rim */}
         <div className="absolute inset-0 rounded-full pointer-events-none ring-1 ring-inset ring-white/60 dark:ring-white/10" />

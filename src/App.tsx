@@ -28,6 +28,7 @@ import {
   TravelTimeOverridesMap,
   ActiveRideState,
   MeasuredSegmentLog,
+  UIThemeMode,
 } from './types/metro';
 import { STATIONS, METRO_LINES } from './data/metroData';
 import { Language, translations } from './utils/i18n';
@@ -73,9 +74,11 @@ import {
   fetchTravelTimes,
   subscribeToTravelTimes,
   saveLineTravelTimes,
+  resetLineTravelTimes,
   getLocalCachedTravelTimes,
 } from './services/travelTimesService';
 import { RideModeModal } from './components/RideModeModal';
+import { TransitAnimatedBackground } from './components/TransitThemeVisuals';
 import { haptic } from './utils/haptics';
 import { BookmarkCheck, Train, TrainFront, ChevronUp, ChevronDown, Sparkles, X } from 'lucide-react';
 import { CURRENT_VERSION } from './data/versionHistory';
@@ -124,6 +127,9 @@ export default function App() {
     try {
       localStorage.setItem('metroflow_is_admin', String(status));
     } catch {}
+    if (!status && (uiTheme === 'ios' || uiTheme === 'minecraft')) {
+      handleSetUiTheme('transit');
+    }
   };
 
   // Metro Network News & Tutorial Articles
@@ -178,13 +184,13 @@ export default function App() {
     showToast(language === 'de' ? 'Artikel entfernt.' : 'Article removed.');
   };
 
-  // Language setting (de / en)
+  // Language setting (en default / de)
   const [language, setLanguage] = useState<Language>(() => {
     try {
       const saved = localStorage.getItem('metroflow_language');
-      return saved === 'en' ? 'en' : 'de';
+      return saved === 'de' ? 'de' : 'en';
     } catch {
-      return 'de';
+      return 'en';
     }
   });
 
@@ -242,26 +248,24 @@ export default function App() {
     } catch {}
   };
 
-  // UI Design Theme: 'default' (classic MetroFlow), 'ios' (iOS-inspired), or 'minecraft' (Minecraft pixel theme)
-  const [uiTheme, setUiTheme] = useState<'default' | 'ios' | 'minecraft'>(() => {
+  // UI Design Theme: 'transit' (new default), 'default' (classic MetroFlow), 'ios' (Admin-only), or 'minecraft' (Admin-only)
+  const [uiTheme, setUiTheme] = useState<UIThemeMode>(() => {
     try {
       const adminSaved = localStorage.getItem('metroflow_is_admin') === 'true';
-      // When opening the app the first time or if not admin, default UI is original ('default')
-      if (!adminSaved) {
-        return 'default';
-      }
-      // Only when in admin mode and having switched the UI before closing the app:
       const saved = localStorage.getItem('metroflow_ui_theme');
-      if (saved === 'ios' || saved === 'minecraft' || saved === 'default') {
+      if (saved === 'transit' || saved === 'default') {
         return saved;
       }
-      return 'default';
+      if ((saved === 'ios' || saved === 'minecraft') && adminSaved) {
+        return saved;
+      }
+      return 'transit';
     } catch {
-      return 'default';
+      return 'transit';
     }
   });
 
-  const handleSetUiTheme = (themeMode: 'default' | 'ios' | 'minecraft') => {
+  const handleSetUiTheme = (themeMode: UIThemeMode) => {
     setUiTheme(themeMode);
     try {
       localStorage.setItem('metroflow_ui_theme', themeMode);
@@ -274,6 +278,49 @@ export default function App() {
       }
     }
   };
+
+  // Transit UI Animated Background Lines toggle (Off by default for maximum performance)
+  const [transitBgAnimationEnabled, setTransitBgAnimationEnabled] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('metroflow_transit_bg_animation') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const handleToggleTransitBgAnimation = (enabled?: boolean) => {
+    setTransitBgAnimationEnabled((prev) => {
+      const next = typeof enabled === 'boolean' ? enabled : !prev;
+      try {
+        localStorage.setItem('metroflow_transit_bg_animation', String(next));
+      } catch {}
+      return next;
+    });
+  };
+
+  // Keep InteractiveMap mounted after first visit or idle pre-warm so switching to Map is instant with zero blank frame
+  const [mapMounted, setMapMounted] = useState<boolean>(() => activeTab === 'map');
+
+  useEffect(() => {
+    if (activeTab === 'map' && !mapMounted) {
+      setMapMounted(true);
+    }
+  }, [activeTab, mapMounted]);
+
+  useEffect(() => {
+    if (mapMounted) return;
+    const timer = window.setTimeout(() => {
+      setMapMounted(true);
+    }, 350);
+    return () => window.clearTimeout(timer);
+  }, [mapMounted]);
+
+  // Reset scroll position immediately on tab switches so overlapping crossfades align cleanly at top
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.scrollY > 0) {
+      window.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior });
+    }
+  }, [activeTab]);
 
   // Station route selection: empty by default when opening app (no stations preselected)
   const [originId, setOriginId] = useState<string | null>(null);
@@ -336,6 +383,7 @@ export default function App() {
   // Active Journey Tracker (Ride Mode) State
   const [activeRide, setActiveRide] = useState<ActiveRideState | null>(null);
   const [isStatusWindowOpen, setIsStatusWindowOpen] = useState<boolean>(false);
+  const [isDirectoryReportModalOpen, setIsDirectoryReportModalOpen] = useState<boolean>(false);
 
   const handleStartRide = (route: RouteOption) => {
     const steps = buildRideSteps(route, travelTimeOverrides);
@@ -387,6 +435,16 @@ export default function App() {
     setActiveRide(null);
     haptic.success();
     showToast(translations[language].travelTimesUpdatedSuccess);
+  };
+
+  const handleResetLineTravelTimes = async (lineId: LineId) => {
+    if (!isAdmin) return;
+    const updatedMap = await resetLineTravelTimes(lineId, 'abc123');
+    setGlobalTravelTimeOverrides(updatedMap);
+    setTravelTimeOverrides(updatedMap);
+    haptic.success();
+    const badge = METRO_LINES[lineId]?.badge || lineId;
+    showToast(`${badge}: ${translations[language].resetLineSuccess}`);
   };
 
   // Disruptions live state (persisted locally and synced with server)
@@ -1122,6 +1180,12 @@ export default function App() {
           ? theme === 'dark'
             ? 'theme-minecraft theme-minecraft-dark dark bg-[#14161a] text-[#f1f5f9] font-mono'
             : 'theme-minecraft theme-minecraft-light bg-[#f2ede4] text-[#24211d] font-mono'
+          : uiTheme === 'transit'
+          ? `${transitBgAnimationEnabled ? 'transit-bg-animated ' : ''}${
+              theme === 'dark'
+                ? 'theme-transit dark bg-[#0d111a] text-slate-100 font-sans'
+                : 'theme-transit bg-[#f4f6fa] text-slate-900 font-sans'
+            }`
           : theme === 'dark'
           ? uiTheme === 'ios'
             ? 'dark bg-black text-slate-100 font-sans'
@@ -1129,8 +1193,11 @@ export default function App() {
           : uiTheme === 'ios'
           ? 'bg-[#F2F2F7] text-slate-900 font-sans'
           : 'bg-slate-50 text-slate-900 font-sans'
-      } min-h-screen flex flex-col antialiased selection:bg-blue-600 selection:text-white transition-colors duration-200`}
+      } min-h-screen flex flex-col antialiased selection:bg-blue-600 selection:text-white transition-colors duration-200 relative`}
     >
+      {/* Lightweight GPU-composited Transit Background Line Art (Transit UI + Opt-In Toggle) */}
+      {uiTheme === 'transit' && transitBgAnimationEnabled && <TransitAnimatedBackground />}
+
       {/* Offline connectivity warning banner */}
       <OfflineIndicator language={language} />
 
@@ -1142,7 +1209,11 @@ export default function App() {
             animate={{ y: 0, opacity: 1, scale: 1 }}
             exit={{ y: -20, opacity: 0, scale: 0.95 }}
             transition={{ type: 'spring', stiffness: 500, damping: 32 }}
-            className="fixed top-[calc(6rem+env(safe-area-inset-top))] sm:top-16 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 rounded-full bg-slate-900/90 dark:bg-white/90 text-white dark:text-slate-950 px-4 py-2 text-xs font-semibold shadow-2xl backdrop-blur-md"
+            className={`fixed ${
+              uiTheme === 'ios'
+                ? 'top-[calc(6rem+env(safe-area-inset-top))]'
+                : 'top-[calc(3.5rem+env(safe-area-inset-top))]'
+            } sm:top-16 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 rounded-full bg-slate-900/90 dark:bg-white/90 text-white dark:text-slate-950 px-4 py-2 text-xs font-semibold shadow-2xl backdrop-blur-md`}
           >
             <BookmarkCheck className="w-4 h-4 text-emerald-400 dark:text-emerald-600 shrink-0" />
             <span>{toastMessage}</span>
@@ -1196,6 +1267,7 @@ export default function App() {
             activeRideEta={activeRideEta}
             onOpenActiveRide={handleOpenActiveRide}
             onStatusWindowOpenChange={setIsStatusWindowOpen}
+            isTransitTheme={uiTheme === 'transit'}
           />
         );
       })()}
@@ -1208,7 +1280,11 @@ export default function App() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -20, scale: 0.95 }}
             transition={{ type: 'spring', damping: 24, stiffness: 300 }}
-            className="fixed top-[calc(6rem+env(safe-area-inset-top))] sm:top-[calc(4rem+env(safe-area-inset-top))] left-3 right-3 sm:left-auto sm:right-6 sm:w-[410px] z-50 pointer-events-auto"
+            className={`fixed ${
+              uiTheme === 'ios'
+                ? 'top-[calc(6rem+env(safe-area-inset-top))]'
+                : 'top-[calc(3.5rem+env(safe-area-inset-top))]'
+            } sm:top-[calc(4rem+env(safe-area-inset-top))] left-3 right-3 sm:left-auto sm:right-6 sm:w-[410px] z-50 pointer-events-auto`}
           >
             <div className="p-3.5 sm:p-4 rounded-2xl bg-gradient-to-r from-blue-600 via-indigo-600 to-sky-600 text-white shadow-2xl border border-white/25 flex items-start gap-3 backdrop-blur-md">
               <div className="w-8 h-8 rounded-xl bg-white/20 flex items-center justify-center shrink-0 mt-0.5 shadow-xs">
@@ -1260,138 +1336,290 @@ export default function App() {
 
       {/* Main Content Area */}
       <main
-        className={`flex-1 w-full max-w-5xl mx-auto flex flex-col ${
+        className={`relative z-10 flex-1 w-full max-w-5xl mx-auto flex flex-col ${
           activeTab === 'map'
-            ? 'px-0 md:px-6 pt-[calc(5.625rem+env(safe-area-inset-top))] sm:pt-[calc(3.5rem+env(safe-area-inset-top))] pb-16 md:pb-6'
-            : 'px-4 md:px-6 pt-[calc(5.625rem+env(safe-area-inset-top)+0.75rem)] sm:pt-[calc(3.5rem+env(safe-area-inset-top)+1.25rem)] pb-24 md:pb-8'
+            ? uiTheme === 'ios'
+              ? 'px-0 md:px-6 pt-[calc(5.625rem+env(safe-area-inset-top))] sm:pt-[calc(3.5rem+env(safe-area-inset-top))] pb-16 md:pb-6'
+              : 'px-0 md:px-6 pt-[calc(3rem+env(safe-area-inset-top))] sm:pt-[calc(3.5rem+env(safe-area-inset-top))] pb-16 md:pb-6'
+            : uiTheme === 'ios'
+            ? 'px-4 md:px-6 pt-[calc(5.625rem+env(safe-area-inset-top)+0.75rem)] sm:pt-[calc(3.5rem+env(safe-area-inset-top)+1.25rem)] pb-24 md:pb-8'
+            : 'px-4 md:px-6 pt-[calc(3rem+env(safe-area-inset-top)+0.75rem)] sm:pt-[calc(3.5rem+env(safe-area-inset-top)+1.25rem)] pb-24 md:pb-8'
         } overflow-x-hidden`}
       >
-        <AnimatePresence mode="wait">
-          {activeTab === 'home' && (
-            <motion.div
-              key={`home-${uiTheme}`}
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -6 }}
-              transition={{ duration: 0.18, ease: 'easeOut' }}
-              className="flex-1 flex flex-col"
-            >
-              {uiTheme === 'ios' ? (
-                <IOSHomePage
-                  language={language}
-                  isAdmin={isAdmin}
-                  articles={articles}
-                  disruptions={disruptions}
-                  onNavigateToTab={setActiveTab}
-                  onPublishArticle={handlePublishArticle}
-                  onEditArticle={handleEditArticle}
-                  onDeleteArticle={handleDeleteArticle}
-                  onSelectStationForTrip={handleSetOrigin}
-                />
-              ) : (
-                <HomePage
-                  language={language}
-                  isAdmin={isAdmin}
-                  articles={articles}
-                  disruptions={disruptions}
-                  onNavigateToTab={setActiveTab}
-                  onPublishArticle={handlePublishArticle}
-                  onEditArticle={handleEditArticle}
-                  onDeleteArticle={handleDeleteArticle}
-                />
-              )}
-            </motion.div>
-          )}
+        <div className="relative flex-1 flex flex-col">
+          <AnimatePresence mode="popLayout" initial={false}>
+            {activeTab === 'home' && (
+              <motion.div
+                key={uiTheme === 'ios' ? 'home-ios' : 'home-std'}
+                initial={{ opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, pointerEvents: 'none' }}
+                transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
+                className="relative z-10 flex-1 flex flex-col"
+              >
+                {uiTheme === 'ios' ? (
+                  <IOSHomePage
+                    language={language}
+                    isAdmin={isAdmin}
+                    articles={articles}
+                    disruptions={disruptions}
+                    onNavigateToTab={setActiveTab}
+                    onPublishArticle={handlePublishArticle}
+                    onEditArticle={handleEditArticle}
+                    onDeleteArticle={handleDeleteArticle}
+                    onSelectStationForTrip={handleSetOrigin}
+                  />
+                ) : (
+                  <HomePage
+                    language={language}
+                    isAdmin={isAdmin}
+                    articles={articles}
+                    disruptions={disruptions}
+                    onNavigateToTab={setActiveTab}
+                    onPublishArticle={handlePublishArticle}
+                    onEditArticle={handleEditArticle}
+                    onDeleteArticle={handleDeleteArticle}
+                    isTransitTheme={uiTheme === 'transit'}
+                  />
+                )}
+              </motion.div>
+            )}
 
-          {activeTab === 'plan' && (
-            <motion.div
-              key={`plan-${uiTheme}`}
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -6 }}
-              transition={{ duration: 0.18, ease: 'easeOut' }}
-              className="flex-1 flex flex-col"
-            >
-              {uiTheme === 'ios' ? (
-                <IOSTripPlanner
-                  language={language}
-                  originId={originId}
-                  destinationId={destinationId}
-                  stopoverIds={stopoverIds}
-                  routes={routes}
-                  activeRoute={activeRoute}
-                  savedJourneys={savedJourneys}
-                  recentRoutes={recentRoutes}
-                  lastPlannedEntry={lastPlannedEntry}
-                  preference={preference}
-                  disruptions={disruptions}
-                  avoidDisruptions={avoidDisruptions}
-                  onToggleAvoidDisruptions={handleToggleAvoidDisruptions}
-                  onSetPreference={handleSetPreference}
-                  onSelectRoute={(route) => setActiveRoute(route)}
-                  onCalculateRoute={handleCalculateRoute}
-                  hasCalculatedRoute={hasCalculatedRoute}
-                  onSetOrigin={handleSetOrigin}
-                  onSetDestination={handleSetDestination}
-                  onSetStopovers={handleSetStopovers}
-                  onSwapStations={handleSwapStations}
-                  onViewOnMap={handleViewOnMap}
-                  onSaveJourney={handleSaveJourney}
-                  onSelectRecentRoute={handleSelectRecentRoute}
-                  onDeleteRecentRoute={handleDeleteRecentRoute}
-                  onClearRecentRoutes={handleClearRecentRoutes}
-                  onRestoreLastEntry={handleRestoreLastEntry}
-                  isAdmin={isAdmin}
-                  activeRideId={activeRide?.journeyStarted ? activeRide.route.id : null}
-                  onStartRide={handleStartRide}
-                  onOpenActiveRide={handleOpenActiveRide}
-                />
-              ) : (
-                <TripPlanner
-                  language={language}
-                  originId={originId}
-                  destinationId={destinationId}
-                  stopoverIds={stopoverIds}
-                  routes={routes}
-                  activeRoute={activeRoute}
-                  savedJourneys={savedJourneys}
-                  recentRoutes={recentRoutes}
-                  lastPlannedEntry={lastPlannedEntry}
-                  preference={preference}
-                  disruptions={disruptions}
-                  avoidDisruptions={avoidDisruptions}
-                  onToggleAvoidDisruptions={handleToggleAvoidDisruptions}
-                  onSetPreference={handleSetPreference}
-                  onSelectRoute={(route) => setActiveRoute(route)}
-                  onCalculateRoute={handleCalculateRoute}
-                  hasCalculatedRoute={hasCalculatedRoute}
-                  onSetOrigin={handleSetOrigin}
-                  onSetDestination={handleSetDestination}
-                  onSetStopovers={handleSetStopovers}
-                  onSwapStations={handleSwapStations}
-                  onViewOnMap={handleViewOnMap}
-                  onSaveJourney={handleSaveJourney}
-                  onSelectRecentRoute={handleSelectRecentRoute}
-                  onDeleteRecentRoute={handleDeleteRecentRoute}
-                  onClearRecentRoutes={handleClearRecentRoutes}
-                  onRestoreLastEntry={handleRestoreLastEntry}
-                  isAdmin={isAdmin}
-                  activeRideId={activeRide?.journeyStarted ? activeRide.route.id : null}
-                  onStartRide={handleStartRide}
-                  onOpenActiveRide={handleOpenActiveRide}
-                />
-              )}
-            </motion.div>
-          )}
+            {activeTab === 'plan' && (
+              <motion.div
+                key={uiTheme === 'ios' ? 'plan-ios' : 'plan-std'}
+                initial={{ opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, pointerEvents: 'none' }}
+                transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
+                className="relative z-10 flex-1 flex flex-col"
+              >
+                {uiTheme === 'ios' ? (
+                  <IOSTripPlanner
+                    language={language}
+                    originId={originId}
+                    destinationId={destinationId}
+                    stopoverIds={stopoverIds}
+                    routes={routes}
+                    activeRoute={activeRoute}
+                    savedJourneys={savedJourneys}
+                    recentRoutes={recentRoutes}
+                    lastPlannedEntry={lastPlannedEntry}
+                    preference={preference}
+                    disruptions={disruptions}
+                    avoidDisruptions={avoidDisruptions}
+                    onToggleAvoidDisruptions={handleToggleAvoidDisruptions}
+                    onSetPreference={handleSetPreference}
+                    onSelectRoute={(route) => setActiveRoute(route)}
+                    onCalculateRoute={handleCalculateRoute}
+                    hasCalculatedRoute={hasCalculatedRoute}
+                    onSetOrigin={handleSetOrigin}
+                    onSetDestination={handleSetDestination}
+                    onSetStopovers={handleSetStopovers}
+                    onSwapStations={handleSwapStations}
+                    onViewOnMap={handleViewOnMap}
+                    onSaveJourney={handleSaveJourney}
+                    onSelectRecentRoute={handleSelectRecentRoute}
+                    onDeleteRecentRoute={handleDeleteRecentRoute}
+                    onClearRecentRoutes={handleClearRecentRoutes}
+                    onRestoreLastEntry={handleRestoreLastEntry}
+                    isAdmin={isAdmin}
+                    activeRideId={activeRide?.journeyStarted ? activeRide.route.id : null}
+                    onStartRide={handleStartRide}
+                    onOpenActiveRide={handleOpenActiveRide}
+                  />
+                ) : (
+                  <TripPlanner
+                    language={language}
+                    originId={originId}
+                    destinationId={destinationId}
+                    stopoverIds={stopoverIds}
+                    routes={routes}
+                    activeRoute={activeRoute}
+                    savedJourneys={savedJourneys}
+                    recentRoutes={recentRoutes}
+                    lastPlannedEntry={lastPlannedEntry}
+                    preference={preference}
+                    disruptions={disruptions}
+                    avoidDisruptions={avoidDisruptions}
+                    onToggleAvoidDisruptions={handleToggleAvoidDisruptions}
+                    onSetPreference={handleSetPreference}
+                    onSelectRoute={(route) => setActiveRoute(route)}
+                    onCalculateRoute={handleCalculateRoute}
+                    hasCalculatedRoute={hasCalculatedRoute}
+                    onSetOrigin={handleSetOrigin}
+                    onSetDestination={handleSetDestination}
+                    onSetStopovers={handleSetStopovers}
+                    onSwapStations={handleSwapStations}
+                    onViewOnMap={handleViewOnMap}
+                    onSaveJourney={handleSaveJourney}
+                    onSelectRecentRoute={handleSelectRecentRoute}
+                    onDeleteRecentRoute={handleDeleteRecentRoute}
+                    onClearRecentRoutes={handleClearRecentRoutes}
+                    onRestoreLastEntry={handleRestoreLastEntry}
+                    isAdmin={isAdmin}
+                    activeRideId={activeRide?.journeyStarted ? activeRide.route.id : null}
+                    onStartRide={handleStartRide}
+                    onOpenActiveRide={handleOpenActiveRide}
+                  />
+                )}
+              </motion.div>
+            )}
 
-          {activeTab === 'map' && (
-            <motion.div
-              key="map"
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -6 }}
-              transition={{ duration: 0.18, ease: 'easeOut' }}
-              className="flex-1 flex flex-col h-[calc(100dvh-9.625rem)] sm:h-[calc(100dvh-7.5rem)] md:min-h-[580px] rounded-none md:rounded-3xl overflow-hidden border-0 md:border border-slate-200 dark:border-slate-800 shadow-none md:shadow-2xl relative"
+            {activeTab === 'lines' && (
+              <motion.div
+                key={uiTheme === 'ios' ? 'lines-ios' : 'lines-std'}
+                initial={{ opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, pointerEvents: 'none' }}
+                transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
+                className="relative z-10 flex-1 flex flex-col"
+              >
+                {uiTheme === 'ios' ? (
+                  <IOSLineDirectory
+                    language={language}
+                    disruptions={disruptions}
+                    userConfirmedIds={userConfirmedIds}
+                    userResolvedIds={userResolvedIds}
+                    onConfirmDisruption={handleConfirmDisruption}
+                    onReportResolved={handleReportResolved}
+                    onReportDisruption={handleReportDisruption}
+                    isAdmin={isAdmin}
+                    onEditDisruption={handleOpenEditDisruption}
+                    onDeleteDisruption={handleDeleteDisruption}
+                    travelTimeOverrides={travelTimeOverrides}
+                    onReportModalOpenChange={setIsDirectoryReportModalOpen}
+                    onSelectStation={() => {
+                      setActiveTab('map');
+                    }}
+                    onSetOrigin={(stId) => {
+                      handleSetOrigin(stId);
+                      setActiveTab('plan');
+                    }}
+                    onSetDestination={(stId) => {
+                      handleSetDestination(stId);
+                      setActiveTab('plan');
+                    }}
+                  />
+                ) : (
+                  <LineDirectory
+                    language={language}
+                    disruptions={disruptions}
+                    userConfirmedIds={userConfirmedIds}
+                    userResolvedIds={userResolvedIds}
+                    onConfirmDisruption={handleConfirmDisruption}
+                    onReportResolved={handleReportResolved}
+                    onReportDisruption={handleReportDisruption}
+                    isAdmin={isAdmin}
+                    onEditDisruption={handleOpenEditDisruption}
+                    onDeleteDisruption={handleDeleteDisruption}
+                    travelTimeOverrides={travelTimeOverrides}
+                    onReportModalOpenChange={setIsDirectoryReportModalOpen}
+                    onSelectStation={() => {
+                      setActiveTab('map');
+                    }}
+                    onSetOrigin={(stId) => {
+                      handleSetOrigin(stId);
+                      setActiveTab('plan');
+                    }}
+                    onSetDestination={(stId) => {
+                      handleSetDestination(stId);
+                      setActiveTab('plan');
+                    }}
+                  />
+                )}
+              </motion.div>
+            )}
+
+            {activeTab === 'options' && (
+              <motion.div
+                key={uiTheme === 'ios' ? 'options-ios' : 'options-std'}
+                initial={{ opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, pointerEvents: 'none' }}
+                transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
+                className="relative z-10 flex-1 flex flex-col"
+              >
+                {uiTheme === 'ios' ? (
+                  <IOSSettingsView
+                    language={language}
+                    onSetLanguage={handleSetLanguage}
+                    theme={theme}
+                    onSetTheme={setTheme}
+                    uiTheme={uiTheme}
+                    onSetUiTheme={handleSetUiTheme}
+                    savedJourneys={savedJourneys}
+                    onLoadSavedJourney={handleLoadSavedJourney}
+                    onDeleteSavedJourney={handleDeleteSavedJourney}
+                    mapRoutePlanningEnabled={mapRoutePlanningEnabled}
+                    onToggleMapRoutePlanning={handleToggleMapRoutePlanning}
+                    mapHighlightGlowEnabled={mapHighlightGlowEnabled}
+                    onToggleMapHighlightGlow={handleToggleMapHighlightGlow}
+                    isAdmin={isAdmin}
+                    onToggleAdmin={handleToggleAdmin}
+                    tabBarStyle={tabBarStyle}
+                    onSetTabBarStyle={handleSetTabBarStyle}
+                    startupOverviewEnabled={startupOverviewEnabled}
+                    onToggleStartupOverview={handleToggleStartupOverview}
+                    onRefreshData={handleRefreshData}
+                    isRefreshingData={isRefreshingData}
+                    openVersionHistoryDirectly={openVersionHistoryFromBanner}
+                    onCloseVersionHistoryDirectly={() => setOpenVersionHistoryFromBanner(false)}
+                    travelTimeOverrides={travelTimeOverrides}
+                    onResetLineTravelTimes={handleResetLineTravelTimes}
+                  />
+                ) : (
+                  <OptionsMenu
+                    language={language}
+                    onSetLanguage={handleSetLanguage}
+                    theme={theme}
+                    onSetTheme={setTheme}
+                    uiTheme={uiTheme}
+                    onSetUiTheme={handleSetUiTheme}
+                    savedJourneys={savedJourneys}
+                    onLoadSavedJourney={handleLoadSavedJourney}
+                    onDeleteSavedJourney={handleDeleteSavedJourney}
+                    mapRoutePlanningEnabled={mapRoutePlanningEnabled}
+                    onToggleMapRoutePlanning={handleToggleMapRoutePlanning}
+                    mapHighlightGlowEnabled={mapHighlightGlowEnabled}
+                    onToggleMapHighlightGlow={handleToggleMapHighlightGlow}
+                    isAdmin={isAdmin}
+                    onToggleAdmin={handleToggleAdmin}
+                    tabBarStyle={tabBarStyle}
+                    onSetTabBarStyle={handleSetTabBarStyle}
+                    startupOverviewEnabled={startupOverviewEnabled}
+                    onToggleStartupOverview={handleToggleStartupOverview}
+                    onRefreshData={handleRefreshData}
+                    isRefreshingData={isRefreshingData}
+                    openVersionHistoryDirectly={openVersionHistoryFromBanner}
+                    onCloseVersionHistoryDirectly={() => setOpenVersionHistoryFromBanner(false)}
+                    travelTimeOverrides={travelTimeOverrides}
+                    onResetLineTravelTimes={handleResetLineTravelTimes}
+                    transitBgAnimationEnabled={transitBgAnimationEnabled}
+                    onToggleTransitBgAnimation={handleToggleTransitBgAnimation}
+                  />
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Persistent Pre-Warmed Transit Map Panel (zero mount lag & smooth crossfade) */}
+          {(mapMounted || activeTab === 'map') && (
+            <div
+              aria-hidden={activeTab !== 'map'}
+              style={{
+                transition:
+                  activeTab === 'map'
+                    ? 'opacity 160ms cubic-bezier(0.22, 1, 0.36, 1), visibility 0s linear 0s'
+                    : 'opacity 140ms ease-out, visibility 0s linear 140ms',
+              }}
+              className={`flex flex-col ${
+                uiTheme === 'ios' ? 'h-[calc(100dvh-9.625rem)]' : 'h-[calc(100dvh-7rem)]'
+              } sm:h-[calc(100dvh-7.5rem)] md:min-h-[580px] rounded-none md:rounded-3xl overflow-hidden ${
+                activeTab === 'map'
+                  ? 'relative z-10 flex-1 border-0 md:border border-slate-200 dark:border-slate-800 shadow-none md:shadow-2xl opacity-100 visible pointer-events-auto'
+                  : 'absolute inset-x-0 top-0 z-0 opacity-0 invisible pointer-events-none'
+              }`}
             >
               <InteractiveMap
                 language={language}
@@ -1435,137 +1663,9 @@ export default function App() {
                 onOpenActiveRide={handleOpenActiveRide}
                 travelTimeOverrides={travelTimeOverrides}
               />
-            </motion.div>
+            </div>
           )}
-
-          {activeTab === 'lines' && (
-            <motion.div
-              key={`lines-${uiTheme}`}
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -6 }}
-              transition={{ duration: 0.18, ease: 'easeOut' }}
-              className="flex-1 flex flex-col"
-            >
-              {uiTheme === 'ios' ? (
-                <IOSLineDirectory
-                  language={language}
-                  disruptions={disruptions}
-                  userConfirmedIds={userConfirmedIds}
-                  userResolvedIds={userResolvedIds}
-                  onConfirmDisruption={handleConfirmDisruption}
-                  onReportResolved={handleReportResolved}
-                  onReportDisruption={handleReportDisruption}
-                  isAdmin={isAdmin}
-                  onEditDisruption={handleOpenEditDisruption}
-                  onDeleteDisruption={handleDeleteDisruption}
-                  travelTimeOverrides={travelTimeOverrides}
-                  onSelectStation={() => {
-                    setActiveTab('map');
-                  }}
-                  onSetOrigin={(stId) => {
-                    handleSetOrigin(stId);
-                    setActiveTab('plan');
-                  }}
-                  onSetDestination={(stId) => {
-                    handleSetDestination(stId);
-                    setActiveTab('plan');
-                  }}
-                />
-              ) : (
-                <LineDirectory
-                  language={language}
-                  disruptions={disruptions}
-                  userConfirmedIds={userConfirmedIds}
-                  userResolvedIds={userResolvedIds}
-                  onConfirmDisruption={handleConfirmDisruption}
-                  onReportResolved={handleReportResolved}
-                  onReportDisruption={handleReportDisruption}
-                  isAdmin={isAdmin}
-                  onEditDisruption={handleOpenEditDisruption}
-                  onDeleteDisruption={handleDeleteDisruption}
-                  travelTimeOverrides={travelTimeOverrides}
-                  onSelectStation={() => {
-                    setActiveTab('map');
-                  }}
-                  onSetOrigin={(stId) => {
-                    handleSetOrigin(stId);
-                    setActiveTab('plan');
-                  }}
-                  onSetDestination={(stId) => {
-                    handleSetDestination(stId);
-                    setActiveTab('plan');
-                  }}
-                />
-              )}
-            </motion.div>
-          )}
-
-          {activeTab === 'options' && (
-            <motion.div
-              key={`options-${uiTheme}`}
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -6 }}
-              transition={{ duration: 0.18, ease: 'easeOut' }}
-              className="flex-1 flex flex-col"
-            >
-              {uiTheme === 'ios' ? (
-                <IOSSettingsView
-                  language={language}
-                  onSetLanguage={handleSetLanguage}
-                  theme={theme}
-                  onSetTheme={setTheme}
-                  uiTheme={uiTheme}
-                  onSetUiTheme={handleSetUiTheme}
-                  savedJourneys={savedJourneys}
-                  onLoadSavedJourney={handleLoadSavedJourney}
-                  onDeleteSavedJourney={handleDeleteSavedJourney}
-                  mapRoutePlanningEnabled={mapRoutePlanningEnabled}
-                  onToggleMapRoutePlanning={handleToggleMapRoutePlanning}
-                  mapHighlightGlowEnabled={mapHighlightGlowEnabled}
-                  onToggleMapHighlightGlow={handleToggleMapHighlightGlow}
-                  isAdmin={isAdmin}
-                  onToggleAdmin={handleToggleAdmin}
-                  tabBarStyle={tabBarStyle}
-                  onSetTabBarStyle={handleSetTabBarStyle}
-                  startupOverviewEnabled={startupOverviewEnabled}
-                  onToggleStartupOverview={handleToggleStartupOverview}
-                  onRefreshData={handleRefreshData}
-                  isRefreshingData={isRefreshingData}
-                  openVersionHistoryDirectly={openVersionHistoryFromBanner}
-                  onCloseVersionHistoryDirectly={() => setOpenVersionHistoryFromBanner(false)}
-                />
-              ) : (
-                <OptionsMenu
-                  language={language}
-                  onSetLanguage={handleSetLanguage}
-                  theme={theme}
-                  onSetTheme={setTheme}
-                  uiTheme={uiTheme}
-                  onSetUiTheme={handleSetUiTheme}
-                  savedJourneys={savedJourneys}
-                  onLoadSavedJourney={handleLoadSavedJourney}
-                  onDeleteSavedJourney={handleDeleteSavedJourney}
-                  mapRoutePlanningEnabled={mapRoutePlanningEnabled}
-                  onToggleMapRoutePlanning={handleToggleMapRoutePlanning}
-                  mapHighlightGlowEnabled={mapHighlightGlowEnabled}
-                  onToggleMapHighlightGlow={handleToggleMapHighlightGlow}
-                  isAdmin={isAdmin}
-                  onToggleAdmin={handleToggleAdmin}
-                  tabBarStyle={tabBarStyle}
-                  onSetTabBarStyle={handleSetTabBarStyle}
-                  startupOverviewEnabled={startupOverviewEnabled}
-                  onToggleStartupOverview={handleToggleStartupOverview}
-                  onRefreshData={handleRefreshData}
-                  isRefreshingData={isRefreshingData}
-                  openVersionHistoryDirectly={openVersionHistoryFromBanner}
-                  onCloseVersionHistoryDirectly={() => setOpenVersionHistoryFromBanner(false)}
-                />
-              )}
-            </motion.div>
-          )}
-        </AnimatePresence>
+        </div>
       </main>
 
       {/* Startup Disruption Overview Modal */}
@@ -1605,17 +1705,25 @@ export default function App() {
             onViewOnMap={handleViewOnMap}
             onUpdateRideState={setActiveRide}
             onConfirmSaveTravelTimes={handleConfirmSaveTravelTimes}
+            isTransitTheme={uiTheme === 'transit'}
           />
         )}
       </AnimatePresence>
 
-      {/* Bottom iOS Navigation Bar (hidden while Active Ride, Alert/Time, or Startup Disruption windows are open) */}
-      {!(Boolean(activeRide && !activeRide.isMinimized) || isStatusWindowOpen || showStartupOverview) && (
+      {/* Bottom iOS Navigation Bar (hidden while Active Ride, Alert/Time, Startup Disruption, or Report Disruption windows are open) */}
+      {!(
+        Boolean(activeRide && !activeRide.isMinimized) ||
+        isStatusWindowOpen ||
+        showStartupOverview ||
+        isDisruptionModalOpen ||
+        isDirectoryReportModalOpen
+      ) && (
         <TabBar
           language={language}
           activeTab={activeTab}
           onChangeTab={setActiveTab}
           tabBarStyle={tabBarStyle}
+          isTransitTheme={uiTheme === 'transit'}
         />
       )}
     </div>

@@ -34,6 +34,7 @@ interface HeaderProps {
   activeRideEta?: string | null;
   onOpenActiveRide?: () => void;
   onStatusWindowOpenChange?: (isOpen: boolean) => void;
+  isTransitTheme?: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -47,6 +48,7 @@ export const Header: React.FC<HeaderProps> = ({
   activeRideEta = null,
   onOpenActiveRide,
   onStatusWindowOpenChange,
+  isTransitTheme = false,
 }) => {
   const t = translations[language];
   const isOnline = useOnlineStatus();
@@ -130,13 +132,13 @@ export const Header: React.FC<HeaderProps> = ({
   return (
     <>
       <header className="fixed top-0 left-0 right-0 z-40 w-full bg-white/85 dark:bg-slate-950/85 backdrop-blur-xl border-b border-slate-200 dark:border-slate-800/80 pt-[env(safe-area-inset-top)] transition-colors shadow-xs select-none">
-        <div className="max-w-4xl mx-auto px-3.5 sm:px-4 h-12 sm:h-14 flex items-center justify-between gap-2">
+        <div className="max-w-4xl mx-auto px-2.5 sm:px-4 h-12 sm:h-14 flex items-center justify-between gap-1.5 sm:gap-2">
           {/* Brand Identity */}
-          <div className="flex items-center gap-2.5 shrink-0">
+          <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
             <motion.div
               whileHover={{ scale: 1.05, rotate: -2 }}
               whileTap={{ scale: 0.95 }}
-              className="w-8 h-8 rounded-xl overflow-hidden shadow-md shadow-black/20 ring-1 ring-black/10 dark:ring-white/15 shrink-0"
+              className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg sm:rounded-xl overflow-hidden shadow-md shadow-black/20 ring-1 ring-black/10 dark:ring-white/15 shrink-0"
             >
               <img
                 src={`${import.meta.env.BASE_URL}app-icon.png`}
@@ -145,9 +147,21 @@ export const Header: React.FC<HeaderProps> = ({
               />
             </motion.div>
             <div>
-              <div className="flex items-center gap-1.5">
-                <h1 className="text-sm font-bold text-slate-900 dark:text-white tracking-tight">MetroFlow</h1>
-                <span className="text-[10px] font-extrabold px-1.5 py-0.2 rounded bg-blue-500/20 text-blue-600 dark:text-blue-400 border border-blue-500/30">
+              <div className="flex items-center gap-1 sm:gap-1.5">
+                <h1 className="text-[13px] sm:text-sm font-bold text-slate-900 dark:text-white tracking-tight">
+                  MetroFlow
+                </h1>
+                <span
+                  className={`${
+                    hasMinimizedActiveRide
+                      ? 'hidden sm:inline-flex'
+                      : 'hidden min-[400px]:inline-flex sm:inline-flex'
+                  } ${
+                    isTransitTheme
+                      ? 'text-[10px] font-extrabold px-1.5 sm:px-2 py-0.2 rounded-full bg-blue-600 text-white dark:bg-[#1d283a] dark:text-sky-300 border border-blue-500/30 dark:border-sky-400/25'
+                      : 'text-[10px] font-extrabold px-1.5 py-0.2 rounded bg-blue-500/20 text-blue-600 dark:text-blue-400 border border-blue-500/30'
+                  }`}
+                >
                   044
                 </span>
               </div>
@@ -157,6 +171,152 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           </div>
 
+          {/* Mobile Center: Compact single-row Alert/Time + Active Ride pills */}
+          <div
+            className={`sm:hidden flex-1 min-w-0 grid gap-1 ${
+              hasMinimizedActiveRide && onOpenActiveRide ? 'grid-cols-2' : 'grid-cols-1'
+            }`}
+          >
+            <motion.button
+              onClick={handleOpenStatusModal}
+              whileTap={{ scale: 0.96 }}
+              className={`w-full min-w-0 h-7 px-2 rounded-full flex items-center justify-between gap-1 border transition-all cursor-pointer shadow-xs ${
+                isTransitTheme
+                  ? isAllClear
+                    ? 'bg-slate-100/95 dark:bg-[#161c28] text-slate-800 dark:text-white border-slate-200/90 dark:border-slate-700/70'
+                    : 'bg-amber-50 dark:bg-[#1c1812] text-amber-800 dark:text-amber-300 border-amber-400/60 dark:border-amber-500/45 shadow-amber-500/10'
+                  : isAllClear
+                  ? 'bg-slate-900/95 dark:bg-zinc-900/95 text-white border-slate-700/70 dark:border-zinc-700/70'
+                  : 'bg-zinc-950/95 text-amber-300 border-amber-500/45 shadow-amber-500/10'
+              }`}
+              title={
+                language === 'de'
+                  ? 'Tippen für Uhrzeit, Datum & Störungsdetails'
+                  : 'Tap for time, date & disruption details'
+              }
+              aria-label={
+                language === 'de'
+                  ? 'Netzwerkstatus und Uhrzeit anzeigen'
+                  : 'Show network status and time'
+              }
+            >
+              <span className="flex items-center gap-1 min-w-0">
+                <span className="relative flex h-1.5 w-1.5 shrink-0">
+                  <span
+                    className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
+                      isAllClear ? 'bg-emerald-400' : 'bg-amber-400'
+                    }`}
+                  />
+                  <span
+                    className={`relative inline-flex rounded-full h-1.5 w-1.5 ${
+                      isAllClear ? 'bg-emerald-500' : 'bg-amber-500'
+                    }`}
+                  />
+                </span>
+                <span
+                  className={`text-[10px] font-semibold tracking-tight truncate ${
+                    isTransitTheme
+                      ? isAllClear
+                        ? 'text-slate-800 dark:text-white'
+                        : 'text-amber-900 dark:text-amber-200'
+                      : 'text-white'
+                  }`}
+                >
+                  {isAllClear ? (
+                    hasMinimizedActiveRide ? (
+                      <>
+                        <span className="hidden min-[430px]:inline">
+                          {language === 'de' ? 'Normal' : 'Normal'}
+                        </span>
+                        <span className="min-[430px]:hidden">OK</span>
+                      </>
+                    ) : language === 'de' ? (
+                      'Normalbetrieb'
+                    ) : (
+                      'All Normal'
+                    )
+                  ) : (
+                    `${activeDisruptionsCount} ${
+                      activeDisruptionsCount === 1
+                        ? language === 'de'
+                          ? hasMinimizedActiveRide
+                            ? 'Stör.'
+                            : 'Störung'
+                          : 'Alert'
+                        : language === 'de'
+                        ? hasMinimizedActiveRide
+                          ? 'Stör.'
+                          : 'Störungen'
+                        : 'Alerts'
+                    }`
+                  )}
+                </span>
+              </span>
+
+              {shortTime && (
+                <span
+                  className={`text-[9.5px] border-l pl-1 shrink-0 font-mono font-semibold tabular-nums ${
+                    isTransitTheme
+                      ? isAllClear
+                        ? 'text-slate-500 dark:text-slate-300 border-slate-300 dark:border-slate-700'
+                        : 'text-amber-700 dark:text-amber-300 border-amber-300/70 dark:border-amber-500/30'
+                      : 'text-slate-300 border-slate-700/80'
+                  }`}
+                >
+                  {shortTime}
+                </span>
+              )}
+            </motion.button>
+
+            {hasMinimizedActiveRide && onOpenActiveRide && (
+              <motion.button
+                initial={{ opacity: 0, scale: 0.92 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.92 }}
+                whileTap={{ scale: 0.96 }}
+                onClick={() => {
+                  haptic.selection();
+                  onOpenActiveRide();
+                }}
+                className={`w-full min-w-0 h-7 px-2 rounded-full flex items-center justify-between gap-1 border shadow-xs cursor-pointer transition-all ${
+                  isTransitTheme
+                    ? 'bg-emerald-50 dark:bg-emerald-950/90 text-emerald-700 dark:text-emerald-300 border-emerald-400/60 dark:border-emerald-500/50 shadow-emerald-500/15'
+                    : 'bg-emerald-950/95 text-emerald-300 border-emerald-500/50 shadow-emerald-500/20'
+                }`}
+                title={t.rideModeTitle}
+              >
+                <span className="flex items-center gap-1 min-w-0">
+                  <span className="relative flex h-1.5 w-1.5 shrink-0">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                    <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500" />
+                  </span>
+                  <span
+                    className={`text-[10px] font-bold tracking-tight truncate ${
+                      isTransitTheme ? 'text-emerald-900 dark:text-white' : 'text-white'
+                    }`}
+                  >
+                    <span className="hidden min-[440px]:inline">{t.activeRide}</span>
+                    <span className="min-[440px]:hidden">
+                      {language === 'de' ? 'Fahrt' : 'Ride'}
+                    </span>
+                  </span>
+                </span>
+
+                {activeRideEta && (
+                  <span
+                    className={`text-[9.5px] border-l pl-1 shrink-0 font-mono font-semibold tabular-nums ${
+                      isTransitTheme
+                        ? 'text-emerald-700 dark:text-emerald-200 border-emerald-300 dark:border-emerald-600/70'
+                        : 'text-emerald-200 border-emerald-600/70'
+                    }`}
+                  >
+                    {activeRideEta}
+                  </span>
+                )}
+              </motion.button>
+            )}
+          </div>
+
           {/* Desktop/Tablet Center: Live Time Window, Disruption Pill & Active Ride Pill */}
           <div className="hidden sm:flex items-center justify-center gap-2 flex-1 min-w-0 px-1">
             <motion.button
@@ -164,7 +324,11 @@ export const Header: React.FC<HeaderProps> = ({
               whileHover={{ scale: 1.03 }}
               whileTap={{ scale: 0.96 }}
               className={`px-3 py-1.5 rounded-full flex items-center gap-2 border transition-all cursor-pointer shadow-sm truncate max-w-full ${
-                isAllClear
+                isTransitTheme
+                  ? isAllClear
+                    ? 'bg-slate-100/90 dark:bg-[#161c28] text-slate-800 dark:text-white border-slate-200/90 dark:border-slate-700/70 hover:bg-slate-200/80 dark:hover:bg-[#1e2636]'
+                    : 'bg-amber-50 dark:bg-[#1c1812] text-amber-800 dark:text-amber-300 border-amber-400/60 dark:border-amber-500/45 hover:border-amber-500 shadow-amber-500/10'
+                  : isAllClear
                   ? 'bg-slate-900/90 dark:bg-zinc-900/90 text-white border-slate-700/60 dark:border-zinc-700/60 hover:bg-slate-800 dark:hover:bg-zinc-800'
                   : 'bg-black/95 dark:bg-zinc-900/95 text-amber-300 border-amber-500/40 hover:border-amber-400 shadow-amber-500/10'
               }`}
@@ -194,7 +358,15 @@ export const Header: React.FC<HeaderProps> = ({
               </span>
 
               {/* Disruption status count */}
-              <span className="text-[11px] font-semibold tracking-tight text-white truncate">
+              <span
+                className={`text-[11px] font-semibold tracking-tight truncate ${
+                  isTransitTheme
+                    ? isAllClear
+                      ? 'text-slate-800 dark:text-white'
+                      : 'text-amber-900 dark:text-amber-200'
+                    : 'text-white'
+                }`}
+              >
                 {isAllClear
                   ? language === 'de'
                     ? 'Normalbetrieb'
@@ -212,7 +384,15 @@ export const Header: React.FC<HeaderProps> = ({
 
               {/* Time display: HH:MM */}
               {shortTime && (
-                <span className="text-[10px] text-slate-400 border-l border-slate-700 pl-1.5 shrink-0 font-mono font-medium tabular-nums">
+                <span
+                  className={`text-[10px] border-l pl-1.5 shrink-0 font-mono font-medium tabular-nums ${
+                    isTransitTheme
+                      ? isAllClear
+                        ? 'text-slate-500 dark:text-slate-300 border-slate-300 dark:border-slate-700'
+                        : 'text-amber-700 dark:text-amber-300/90 border-amber-300/70 dark:border-amber-500/30'
+                      : 'text-slate-400 border-slate-700'
+                  }`}
+                >
                   {shortTime}
                 </span>
               )}
@@ -229,19 +409,33 @@ export const Header: React.FC<HeaderProps> = ({
                   haptic.selection();
                   onOpenActiveRide();
                 }}
-                className="px-3 py-1.5 rounded-full flex items-center gap-1.5 border bg-emerald-950/95 text-emerald-300 border-emerald-500/50 hover:border-emerald-400 shadow-sm shadow-emerald-500/20 cursor-pointer shrink-0 whitespace-nowrap transition-all"
+                className={`px-3 py-1.5 rounded-full flex items-center gap-1.5 border shadow-sm cursor-pointer shrink-0 whitespace-nowrap transition-all ${
+                  isTransitTheme
+                    ? 'bg-emerald-50 dark:bg-emerald-950/90 text-emerald-700 dark:text-emerald-300 border-emerald-400/60 dark:border-emerald-500/50 hover:border-emerald-500 shadow-emerald-500/15'
+                    : 'bg-emerald-950/95 text-emerald-300 border-emerald-500/50 hover:border-emerald-400 shadow-emerald-500/20'
+                }`}
                 title={t.rideModeTitle}
               >
                 <span className="relative flex h-2 w-2 shrink-0">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
                   <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
                 </span>
-                <Navigation className="w-3 h-3 text-emerald-400 shrink-0" />
-                <span className="text-[11px] font-bold tracking-tight text-white">
+                <Navigation className="w-3 h-3 text-emerald-500 dark:text-emerald-400 shrink-0" />
+                <span
+                  className={`text-[11px] font-bold tracking-tight ${
+                    isTransitTheme ? 'text-emerald-900 dark:text-white' : 'text-white'
+                  }`}
+                >
                   {t.activeRide}
                 </span>
                 {activeRideEta && (
-                  <span className="text-[10px] text-emerald-200 border-l border-emerald-600/70 pl-1.5 shrink-0 font-mono font-semibold tabular-nums">
+                  <span
+                    className={`text-[10px] border-l pl-1.5 shrink-0 font-mono font-semibold tabular-nums ${
+                      isTransitTheme
+                        ? 'text-emerald-700 dark:text-emerald-200 border-emerald-300 dark:border-emerald-600/70'
+                        : 'text-emerald-200 border-emerald-600/70'
+                    }`}
+                  >
                     {t.etaCompact} {activeRideEta}
                   </span>
                 )}
@@ -250,10 +444,10 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
 
           {/* Right side actions: Online/Offline status + Quick theme toggle + PWA install button */}
-          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+          <div className="flex items-center gap-1 sm:gap-2 shrink-0">
             {/* Online / Offline Status Badge */}
             <div
-              className={`px-2 py-1 rounded-full text-[10px] font-bold flex items-center gap-1.5 border transition-colors ${
+              className={`px-1.5 sm:px-2 py-1 rounded-full text-[10px] font-bold flex items-center gap-1.5 border transition-colors ${
                 isOnline
                   ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20'
                   : 'bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30'
@@ -283,7 +477,7 @@ export const Header: React.FC<HeaderProps> = ({
               }}
               whileHover={{ scale: 1.08 }}
               whileTap={{ scale: 0.88 }}
-              className="w-8 h-8 sm:w-auto sm:h-auto sm:p-2 rounded-full bg-slate-100 dark:bg-slate-800/80 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 flex items-center justify-center transition-colors shadow-xs cursor-pointer"
+              className="w-7 h-7 sm:w-auto sm:h-auto sm:p-2 rounded-full bg-slate-100 dark:bg-slate-800/80 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 flex items-center justify-center transition-colors shadow-xs cursor-pointer"
               title={theme === 'dark' ? t.lightMode : t.darkMode}
               aria-label={theme === 'dark' ? t.lightMode : t.darkMode}
             >
@@ -294,109 +488,15 @@ export const Header: React.FC<HeaderProps> = ({
                 transition={{ duration: 0.2, ease: 'easeOut' }}
               >
                 {theme === 'dark' ? (
-                  <Sun className="w-4 h-4 text-amber-400" />
+                  <Sun className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-400" />
                 ) : (
-                  <Moon className="w-4 h-4 text-slate-700" />
+                  <Moon className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-slate-700" />
                 )}
               </motion.div>
             </motion.button>
 
             <PWAInstallButton />
           </div>
-        </div>
-
-        {/* Mobile Action Strip: Equal-size Disruptions/Time + Active Ride (or full-width Disruptions/Time when idle) */}
-        <div
-          className={`sm:hidden max-w-4xl mx-auto px-3.5 pb-2 pt-0.5 grid gap-2 ${
-            hasMinimizedActiveRide && onOpenActiveRide ? 'grid-cols-2' : 'grid-cols-1'
-          }`}
-        >
-          <motion.button
-            onClick={handleOpenStatusModal}
-            whileTap={{ scale: 0.98 }}
-            className={`w-full min-w-0 h-9 px-2.5 rounded-xl flex items-center justify-between gap-1.5 border transition-all cursor-pointer shadow-xs ${
-              isAllClear
-                ? 'bg-slate-900/95 dark:bg-zinc-900/95 text-white border-slate-700/70 dark:border-zinc-700/70'
-                : 'bg-zinc-950/95 text-amber-300 border-amber-500/45 shadow-amber-500/10'
-            }`}
-            title={
-              language === 'de'
-                ? 'Tippen für Uhrzeit, Datum & Störungsdetails'
-                : 'Tap for time, date & disruption details'
-            }
-            aria-label={
-              language === 'de'
-                ? 'Netzwerkstatus und Uhrzeit anzeigen'
-                : 'Show network status and time'
-            }
-          >
-            <span className="flex items-center gap-1.5 min-w-0">
-              <span className="relative flex h-2 w-2 shrink-0">
-                <span
-                  className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
-                    isAllClear ? 'bg-emerald-400' : 'bg-amber-400'
-                  }`}
-                />
-                <span
-                  className={`relative inline-flex rounded-full h-2 w-2 ${
-                    isAllClear ? 'bg-emerald-500' : 'bg-amber-500'
-                  }`}
-                />
-              </span>
-              <span className="text-[11px] font-semibold tracking-tight text-white truncate">
-                {isAllClear
-                  ? language === 'de'
-                    ? 'Normalbetrieb'
-                    : 'All Normal'
-                  : `${activeDisruptionsCount} ${
-                      activeDisruptionsCount === 1
-                        ? language === 'de'
-                          ? 'Störung'
-                          : 'Alert'
-                        : language === 'de'
-                        ? 'Störungen'
-                        : 'Alerts'
-                    }`}
-              </span>
-            </span>
-
-            {shortTime && (
-              <span className="text-[10px] text-slate-300 border-l border-slate-700/80 pl-1.5 shrink-0 font-mono font-semibold tabular-nums">
-                {shortTime}
-              </span>
-            )}
-          </motion.button>
-
-          {hasMinimizedActiveRide && onOpenActiveRide && (
-            <motion.button
-              initial={{ opacity: 0, scale: 0.92 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.92 }}
-              whileTap={{ scale: 0.97 }}
-              onClick={() => {
-                haptic.selection();
-                onOpenActiveRide();
-              }}
-              className="w-full min-w-0 h-9 px-2.5 rounded-xl flex items-center justify-between gap-1.5 border bg-emerald-950/95 text-emerald-300 border-emerald-500/50 hover:border-emerald-400 shadow-xs shadow-emerald-500/20 cursor-pointer transition-all"
-              title={t.rideModeTitle}
-            >
-              <span className="flex items-center gap-1.5 min-w-0">
-                <span className="relative flex h-2 w-2 shrink-0">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
-                </span>
-                <span className="text-[11px] font-bold tracking-tight text-white truncate">
-                  {t.activeRide}
-                </span>
-              </span>
-
-              {activeRideEta && (
-                <span className="text-[10px] text-emerald-200 border-l border-emerald-600/70 pl-1.5 shrink-0 font-mono font-semibold tabular-nums">
-                  {t.etaCompact} {activeRideEta}
-                </span>
-              )}
-            </motion.button>
-          )}
         </div>
       </header>
 

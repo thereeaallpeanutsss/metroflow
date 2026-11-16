@@ -26,6 +26,7 @@ import { Language, translations } from '../utils/i18n';
 import { Article, ArticleCategory } from '../types/article';
 import { Disruption } from '../types/metro';
 import { haptic } from '../utils/haptics';
+import { TransitHeroArtwork, TransitTrackFrame } from './TransitThemeVisuals';
 
 interface HomePageProps {
   language: Language;
@@ -36,6 +37,7 @@ interface HomePageProps {
   onPublishArticle: (data: Omit<Article, 'id' | 'publishedAt'>) => Promise<void>;
   onEditArticle: (id: string, data: Partial<Omit<Article, 'id' | 'publishedAt'>>) => Promise<void>;
   onDeleteArticle: (id: string) => Promise<void>;
+  isTransitTheme?: boolean;
 }
 
 export const HomePage: React.FC<HomePageProps> = ({
@@ -47,6 +49,7 @@ export const HomePage: React.FC<HomePageProps> = ({
   onPublishArticle,
   onEditArticle,
   onDeleteArticle,
+  isTransitTheme = false,
 }) => {
   const t = translations[language];
 
@@ -203,10 +206,43 @@ export const HomePage: React.FC<HomePageProps> = ({
   return (
     <div className="space-y-6 pb-24 animate-in fade-in duration-200">
       {/* 1. Hero Welcome Section */}
-      <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-blue-600 via-indigo-700 to-slate-900 p-6 md:p-8 text-white shadow-2xl">
-        {/* Decorative background grid and blurs */}
-        <div className="absolute -right-12 -top-12 w-64 h-64 bg-blue-400/20 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute -left-12 -bottom-12 w-64 h-64 bg-emerald-400/20 rounded-full blur-3xl pointer-events-none" />
+      <section
+        className={`transit-custom-surface relative overflow-hidden rounded-3xl p-6 md:p-8 text-white shadow-2xl ${
+          isTransitTheme
+            ? 'bg-gradient-to-r from-[#4f8ef7] via-[#5e9af9] to-[#74a9fb] dark:from-[#161c28] dark:via-[#121722] dark:to-[#1a2232] border border-blue-400/30 dark:border-white/10'
+            : 'bg-gradient-to-br from-blue-600 via-indigo-700 to-slate-900'
+        }`}
+      >
+        {isTransitTheme ? (
+          <>
+            {/* Architectural grid overlay inside Transit Hero */}
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-0 opacity-45 dark:opacity-35"
+              style={{
+                backgroundImage:
+                  'linear-gradient(to right, rgba(255,255,255,0.12) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,255,255,0.12) 1px, transparent 1px)',
+                backgroundSize: '42px 42px',
+              }}
+            />
+            {/* Iconic App-Icon "ÄÄ" Transit Track Artwork */}
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute right-0 top-0 bottom-0 w-[64%] sm:w-[50%] md:w-[46%] flex items-center justify-end overflow-hidden [mask-image:linear-gradient(to_right,transparent,black_24%)]"
+            >
+              <TransitHeroArtwork
+                variant="hero"
+                className="w-full h-full object-cover opacity-90 sm:opacity-100"
+              />
+            </div>
+          </>
+        ) : (
+          <>
+            {/* Decorative background grid and blurs */}
+            <div className="absolute -right-12 -top-12 w-64 h-64 bg-blue-400/20 rounded-full blur-3xl pointer-events-none" />
+            <div className="absolute -left-12 -bottom-12 w-64 h-64 bg-emerald-400/20 rounded-full blur-3xl pointer-events-none" />
+          </>
+        )}
 
         <div className="relative z-10 space-y-4">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/15 backdrop-blur-md border border-white/20 text-xs font-semibold text-blue-100">
@@ -215,10 +251,10 @@ export const HomePage: React.FC<HomePageProps> = ({
           </div>
 
           <div className="space-y-2 max-w-xl">
-            <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight text-white leading-tight">
+            <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight text-white leading-tight drop-shadow-xs">
               {t.welcomeGreeting}
             </h1>
-            <p className="text-xs md:text-sm text-blue-100/90 leading-relaxed">
+            <p className="text-xs md:text-sm text-blue-50/95 dark:text-slate-300/90 leading-relaxed">
               {t.welcomeSubtitle}
             </p>
           </div>
@@ -230,7 +266,9 @@ export const HomePage: React.FC<HomePageProps> = ({
                 haptic.medium();
                 onNavigateToTab('plan');
               }}
-              className="py-2.5 px-4 rounded-2xl bg-white text-slate-900 hover:bg-blue-50 active:scale-95 text-xs font-bold shadow-lg shadow-black/20 flex items-center gap-2 transition"
+              className={`py-2.5 px-4 bg-white text-slate-900 hover:bg-blue-50 active:scale-95 text-xs font-bold shadow-lg shadow-black/20 flex items-center gap-2 transition cursor-pointer ${
+                isTransitTheme ? 'rounded-full' : 'rounded-2xl'
+              }`}
             >
               <Compass className="w-4 h-4 text-blue-600" />
               <span>{t.quickPlanTrip}</span>
@@ -241,7 +279,11 @@ export const HomePage: React.FC<HomePageProps> = ({
                 haptic.medium();
                 onNavigateToTab('map');
               }}
-              className="py-2.5 px-4 rounded-2xl bg-white/20 hover:bg-white/30 backdrop-blur-md active:scale-95 text-white text-xs font-bold border border-white/30 flex items-center gap-2 transition"
+              className={`py-2.5 px-4 backdrop-blur-md active:scale-95 text-white text-xs font-bold border flex items-center gap-2 transition cursor-pointer ${
+                isTransitTheme
+                  ? 'rounded-full bg-white/20 dark:bg-white/10 hover:bg-white/30 dark:hover:bg-white/20 border-white/30 dark:border-white/15'
+                  : 'rounded-2xl bg-white/20 hover:bg-white/30 border-white/30'
+              }`}
             >
               <Map className="w-4 h-4 text-emerald-300" />
               <span>{t.quickViewMap}</span>
@@ -252,9 +294,13 @@ export const HomePage: React.FC<HomePageProps> = ({
                 haptic.medium();
                 onNavigateToTab('lines');
               }}
-              className="py-2.5 px-4 rounded-2xl bg-white/20 hover:bg-white/30 backdrop-blur-md active:scale-95 text-white text-xs font-bold border border-white/30 flex items-center gap-2 transition"
+              className={`py-2.5 px-4 backdrop-blur-md active:scale-95 text-white text-xs font-bold border flex items-center gap-2 transition cursor-pointer ${
+                isTransitTheme
+                  ? 'rounded-full bg-white/20 dark:bg-white/10 hover:bg-white/30 dark:hover:bg-white/20 border-white/30 dark:border-white/15'
+                  : 'rounded-2xl bg-white/20 hover:bg-white/30 border-white/30'
+              }`}
             >
-              <Layers className="w-4 h-4 text-purple-300" />
+              <Layers className="w-4 h-4 text-purple-200 dark:text-purple-300" />
               <span>{language === 'de' ? 'Liniennetz' : 'Lines & Timetable'}</span>
             </button>
           </div>
@@ -280,7 +326,9 @@ export const HomePage: React.FC<HomePageProps> = ({
           {isAdmin && (
             <button
               onClick={handleOpenComposeModal}
-              className="py-2 px-3.5 rounded-2xl bg-blue-600 hover:bg-blue-700 active:scale-95 text-white text-xs font-bold shadow-lg shadow-blue-600/25 flex items-center gap-2 transition self-start sm:self-auto"
+              className={`py-2 px-3.5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white text-xs font-bold shadow-lg shadow-blue-600/25 flex items-center gap-2 transition self-start sm:self-auto cursor-pointer ${
+                isTransitTheme ? 'rounded-full' : 'rounded-2xl'
+              }`}
             >
               <PlusCircle className="w-4 h-4" />
               <span>{t.publishArticle}</span>
@@ -306,9 +354,13 @@ export const HomePage: React.FC<HomePageProps> = ({
                   haptic.light();
                   setSelectedCategory(cat);
                 }}
-                className={`py-1.5 px-3 rounded-xl text-xs font-semibold whitespace-nowrap transition active:scale-95 border ${
+                className={`py-1.5 px-3 text-xs font-semibold whitespace-nowrap transition active:scale-95 border cursor-pointer ${
+                  isTransitTheme ? 'rounded-full' : 'rounded-xl'
+                } ${
                   isSelected
                     ? 'bg-blue-600 text-white border-blue-500 shadow-md shadow-blue-600/20'
+                    : isTransitTheme
+                    ? 'bg-white dark:bg-[#161c28] text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-[#1d2535]'
                     : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800'
                 }`}
               >
@@ -334,27 +386,41 @@ export const HomePage: React.FC<HomePageProps> = ({
               }
             );
 
-            return (
-              <motion.article
-                key={article.id}
-                whileHover={{ y: -2 }}
-                onClick={() => {
-                  haptic.light();
-                  setSelectedArticle(article);
-                }}
-                className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/90 shadow-lg hover:shadow-xl transition-all cursor-pointer flex flex-col justify-between space-y-3 group"
-              >
+            const isWarmTrack =
+              article.pinned || article.category === 'tutorial' || article.category === 'maintenance';
+
+            const transitBadgeClass =
+              article.category === 'tutorial'
+                ? 'bg-[#D12C43] dark:bg-purple-600 text-white border-transparent'
+                : article.category === 'update'
+                ? 'bg-emerald-600 text-white border-transparent'
+                : article.category === 'maintenance'
+                ? 'bg-amber-600 text-white border-transparent'
+                : 'bg-blue-600 text-white border-transparent';
+
+            const articleInnerContent = (
+              <>
                 <div className="space-y-2.5">
                   {/* Category, Date, Pinned Tag & Admin Actions */}
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-1.5 flex-wrap">
                       <span
-                        className={`px-2 py-0.5 rounded-lg text-[10px] font-bold border ${badge.bg}`}
+                        className={`px-2 py-0.5 text-[10px] font-bold border ${
+                          isTransitTheme
+                            ? `rounded-full ${transitBadgeClass}`
+                            : `rounded-lg ${badge.bg}`
+                        }`}
                       >
                         {badge.label}
                       </span>
                       {article.pinned && (
-                        <span className="px-2 py-0.5 rounded-lg text-[10px] font-bold bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800 flex items-center gap-1">
+                        <span
+                          className={`px-2 py-0.5 text-[10px] font-bold border flex items-center gap-1 ${
+                            isTransitTheme
+                              ? 'rounded-full bg-[#6d4512] dark:bg-amber-900/70 text-amber-100 dark:text-amber-200 border-amber-500/40'
+                              : 'rounded-lg bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-800'
+                          }`}
+                        >
                           <Pin className="w-2.5 h-2.5" />
                           <span>{t.pinnedArticle}</span>
                         </span>
@@ -411,6 +477,35 @@ export const HomePage: React.FC<HomePageProps> = ({
                     <ChevronRight className="w-3.5 h-3.5" />
                   </div>
                 </div>
+              </>
+            );
+
+            if (isTransitTheme) {
+              return (
+                <TransitTrackFrame
+                  key={article.id}
+                  variant={isWarmTrack ? 'warm' : 'cool'}
+                  onClick={() => {
+                    haptic.light();
+                    setSelectedArticle(article);
+                  }}
+                >
+                  {articleInnerContent}
+                </TransitTrackFrame>
+              );
+            }
+
+            return (
+              <motion.article
+                key={article.id}
+                whileHover={{ y: -2 }}
+                onClick={() => {
+                  haptic.light();
+                  setSelectedArticle(article);
+                }}
+                className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/90 shadow-lg hover:shadow-xl transition-all cursor-pointer flex flex-col justify-between space-y-3 group"
+              >
+                {articleInnerContent}
               </motion.article>
             );
           })}
@@ -420,7 +515,17 @@ export const HomePage: React.FC<HomePageProps> = ({
       {/* 3. Network Operational Overview */}
       <section className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         {/* Transit status card */}
-        <div className="p-4 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-md flex items-center gap-3">
+        <div
+          className={`p-4 flex items-center gap-3 ${
+            isTransitTheme
+              ? `transit-custom-surface rounded-2xl bg-white dark:bg-[#141923] shadow-sm border ${
+                  activeDisruptionsCount > 0
+                    ? 'border-amber-400/75 dark:border-amber-500/35'
+                    : 'border-slate-200/80 dark:border-slate-800/90'
+                }`
+              : 'rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-md'
+          }`}
+        >
           <div
             className={`p-2.5 rounded-2xl shrink-0 ${
               activeDisruptionsCount === 0
@@ -447,7 +552,13 @@ export const HomePage: React.FC<HomePageProps> = ({
         </div>
 
         {/* Lines count card */}
-        <div className="p-4 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-md flex items-center gap-3">
+        <div
+          className={`p-4 flex items-center gap-3 ${
+            isTransitTheme
+              ? 'transit-custom-surface rounded-2xl bg-white dark:bg-[#141923] border border-slate-200/80 dark:border-slate-800/90 shadow-sm'
+              : 'rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-md'
+          }`}
+        >
           <div className="p-2.5 rounded-2xl bg-blue-100 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 shrink-0">
             <TrainFront className="w-5 h-5" />
           </div>
@@ -462,7 +573,13 @@ export const HomePage: React.FC<HomePageProps> = ({
         </div>
 
         {/* Offline ready card */}
-        <div className="p-4 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-md flex items-center gap-3">
+        <div
+          className={`p-4 flex items-center gap-3 ${
+            isTransitTheme
+              ? 'transit-custom-surface rounded-2xl bg-white dark:bg-[#141923] border border-slate-200/80 dark:border-slate-800/90 shadow-sm'
+              : 'rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-md'
+          }`}
+        >
           <div className="p-2.5 rounded-2xl bg-purple-100 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400 shrink-0">
             <ShieldCheck className="w-5 h-5" />
           </div>

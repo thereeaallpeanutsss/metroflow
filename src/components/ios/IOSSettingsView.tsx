@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { Language, translations } from '../../utils/i18n';
-import { SavedJourney } from '../../types/metro';
+import { LineId, SavedJourney, TravelTimeOverridesMap, UIThemeMode } from '../../types/metro';
 import { useHaptics, haptic } from '../../utils/haptics';
 import { TabBarStyle } from '../TabBar';
 import { VersionHistoryView } from '../VersionHistoryView';
+import { AdminTravelTimesPanel } from '../AdminTravelTimesPanel';
 import { CURRENT_VERSION } from '../../data/versionHistory';
 import {
   Globe,
@@ -35,8 +36,8 @@ interface IOSSettingsViewProps {
   onSetLanguage: (lang: Language) => void;
   theme: 'dark' | 'light';
   onSetTheme: (theme: 'dark' | 'light') => void;
-  uiTheme: 'default' | 'ios' | 'minecraft';
-  onSetUiTheme: (mode: 'default' | 'ios' | 'minecraft') => void;
+  uiTheme: UIThemeMode;
+  onSetUiTheme: (mode: UIThemeMode) => void;
   savedJourneys: SavedJourney[];
   onLoadSavedJourney: (journey: SavedJourney) => void;
   onDeleteSavedJourney: (journeyId: string) => void;
@@ -54,6 +55,8 @@ interface IOSSettingsViewProps {
   isRefreshingData?: boolean;
   openVersionHistoryDirectly?: boolean;
   onCloseVersionHistoryDirectly?: () => void;
+  travelTimeOverrides?: TravelTimeOverridesMap;
+  onResetLineTravelTimes?: (lineId: LineId) => Promise<void>;
 }
 
 export const IOSSettingsView: React.FC<IOSSettingsViewProps> = ({
@@ -80,6 +83,8 @@ export const IOSSettingsView: React.FC<IOSSettingsViewProps> = ({
   isRefreshingData = false,
   openVersionHistoryDirectly = false,
   onCloseVersionHistoryDirectly,
+  travelTimeOverrides = {},
+  onResetLineTravelTimes,
 }) => {
   const t = translations[language];
   const { enabled: hapticsEnabled, setEnabled: setHapticsEnabled } = useHaptics();
@@ -155,41 +160,66 @@ export const IOSSettingsView: React.FC<IOSSettingsViewProps> = ({
         </span>
 
         <div className="rounded-3xl bg-white dark:bg-zinc-900/90 border border-slate-200/90 dark:border-zinc-800 shadow-sm overflow-hidden divide-y divide-slate-100 dark:divide-zinc-800/80">
-          {/* UI Design System Row (Admin Only: Classic, iOS Overhaul, Minecraft Edition) */}
-          {isAdmin && (
-            <div className="p-4 space-y-3">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-xl bg-purple-500 text-white flex items-center justify-center shrink-0 shadow-sm">
-                  <Smartphone className="w-4 h-4" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <span className="text-sm font-bold text-slate-900 dark:text-white block">
-                    {t.uiDesignSetting}
-                  </span>
-                  <span className="text-xs text-slate-500 dark:text-slate-400">
-                    {t.uiDesignDesc}
-                  </span>
-                </div>
+          {/* UI Design System Row (Transit & Classic for everyone; iOS & Minecraft Admin-only) */}
+          <div className="p-4 space-y-3">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-xl bg-purple-500 text-white flex items-center justify-center shrink-0 shadow-sm">
+                <Smartphone className="w-4 h-4" />
               </div>
+              <div className="min-w-0 flex-1">
+                <span className="text-sm font-bold text-slate-900 dark:text-white block">
+                  {t.uiDesignSetting}
+                </span>
+                <span className="text-xs text-slate-500 dark:text-slate-400">
+                  {t.uiDesignDesc}
+                </span>
+              </div>
+            </div>
 
-              {/* Segmented Picker */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
-                <button
-                  onClick={() => {
-                    haptic.selection();
-                    onSetUiTheme('default');
-                  }}
-                  className={`py-2.5 px-3 rounded-2xl flex items-center justify-between border text-xs font-semibold transition cursor-pointer ${
-                    uiTheme === 'default'
-                      ? 'bg-slate-800 dark:bg-slate-700 text-white border-slate-600 shadow-md ring-2 ring-slate-400/30'
-                      : 'bg-slate-100 dark:bg-zinc-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-zinc-700'
-                  }`}
-                >
-                  <span>{t.uiDesignClassic}</span>
-                  {uiTheme === 'default' && <Check className="w-4 h-4 text-emerald-400" />}
-                </button>
+            {/* Segmented Picker */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  haptic.selection();
+                  onSetUiTheme('transit');
+                }}
+                className={`py-2.5 px-3 rounded-2xl flex items-center justify-between border text-xs font-semibold transition cursor-pointer ${
+                  uiTheme === 'transit'
+                    ? 'bg-[#121722] text-white border-[#E03E32]/70 shadow-md ring-2 ring-[#F5B31A]/40'
+                    : 'bg-slate-100 dark:bg-zinc-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-zinc-700'
+                }`}
+              >
+                <div className="flex items-center gap-1.5">
+                  <span>{t.uiDesignTransit}</span>
+                  <span className="inline-flex items-center gap-0.5 shrink-0" aria-hidden="true">
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#E03E32]" />
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#F5B31A]" />
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#3A8FE8]" />
+                  </span>
+                </div>
+                {uiTheme === 'transit' && <Check className="w-4 h-4 text-[#F5B31A]" />}
+              </button>
 
+              <button
+                type="button"
+                onClick={() => {
+                  haptic.selection();
+                  onSetUiTheme('default');
+                }}
+                className={`py-2.5 px-3 rounded-2xl flex items-center justify-between border text-xs font-semibold transition cursor-pointer ${
+                  uiTheme === 'default'
+                    ? 'bg-slate-800 dark:bg-slate-700 text-white border-slate-600 shadow-md ring-2 ring-slate-400/30'
+                    : 'bg-slate-100 dark:bg-zinc-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-zinc-700'
+                }`}
+              >
+                <span>{t.uiDesignClassic}</span>
+                {uiTheme === 'default' && <Check className="w-4 h-4 text-emerald-400" />}
+              </button>
+
+              {isAdmin && (
                 <button
+                  type="button"
                   onClick={() => {
                     haptic.selection();
                     onSetUiTheme('ios');
@@ -206,8 +236,11 @@ export const IOSSettingsView: React.FC<IOSSettingsViewProps> = ({
                   </div>
                   {uiTheme === 'ios' && <Check className="w-4 h-4 text-white" />}
                 </button>
+              )}
 
+              {isAdmin && (
                 <button
+                  type="button"
                   onClick={() => {
                     haptic.selection();
                     onSetUiTheme('minecraft');
@@ -224,9 +257,9 @@ export const IOSSettingsView: React.FC<IOSSettingsViewProps> = ({
                   </div>
                   {uiTheme === 'minecraft' && <Check className="w-4 h-4 text-emerald-300" />}
                 </button>
-              </div>
+              )}
             </div>
-          )}
+          </div>
 
           {/* Theme Row (Light / Dark) */}
           <div className="p-4 space-y-3">
@@ -670,6 +703,14 @@ export const IOSSettingsView: React.FC<IOSSettingsViewProps> = ({
             )}
             {adminSuccess && (
               <p className="text-xs text-emerald-500 font-semibold">{t.adminSuccessCode}</p>
+            )}
+
+            {isAdmin && onResetLineTravelTimes && (
+              <AdminTravelTimesPanel
+                language={language}
+                travelTimeOverrides={travelTimeOverrides}
+                onResetLineTravelTimes={onResetLineTravelTimes}
+              />
             )}
           </div>
 

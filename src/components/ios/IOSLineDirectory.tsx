@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { LineId, Station, Disruption, LineNetworkType, TravelTimeOverridesMap } from '../../types/metro';
 import { METRO_LINES, STATIONS } from '../../data/metroData';
@@ -42,6 +42,7 @@ interface IOSLineDirectoryProps {
   onEditDisruption?: (disruption: Disruption) => void;
   onDeleteDisruption?: (id: string) => Promise<void>;
   travelTimeOverrides?: TravelTimeOverridesMap;
+  onReportModalOpenChange?: (isOpen: boolean) => void;
 }
 
 export const IOSLineDirectory: React.FC<IOSLineDirectoryProps> = ({
@@ -59,6 +60,7 @@ export const IOSLineDirectory: React.FC<IOSLineDirectoryProps> = ({
   onEditDisruption,
   onDeleteDisruption,
   travelTimeOverrides,
+  onReportModalOpenChange,
 }) => {
   const t = translations[language];
 
@@ -72,6 +74,16 @@ export const IOSLineDirectory: React.FC<IOSLineDirectoryProps> = ({
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [disruptionToDelete, setDisruptionToDelete] = useState<Disruption | null>(null);
   const [editingDisruption, setEditingDisruption] = useState<Disruption | null>(null);
+
+  useEffect(() => {
+    onReportModalOpenChange?.(isReportModalOpen);
+  }, [isReportModalOpen, onReportModalOpenChange]);
+
+  useEffect(() => {
+    return () => {
+      onReportModalOpenChange?.(false);
+    };
+  }, [onReportModalOpenChange]);
 
   const selectedLine = selectedLineId ? METRO_LINES[selectedLineId] : null;
 

@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { Language, translations } from '../utils/i18n';
-import { SavedJourney } from '../types/metro';
+import { LineId, SavedJourney, TravelTimeOverridesMap, UIThemeMode } from '../types/metro';
 import { METRO_LINES } from '../data/metroData';
 import { useHaptics, haptic } from '../utils/haptics';
 import { TabBarStyle } from './TabBar';
 import { VersionHistoryView } from './VersionHistoryView';
+import { AdminTravelTimesPanel } from './AdminTravelTimesPanel';
 import { CURRENT_VERSION } from '../data/versionHistory';
 import {
   Globe,
@@ -37,8 +38,8 @@ interface OptionsMenuProps {
   onSetLanguage: (lang: Language) => void;
   theme: 'dark' | 'light';
   onSetTheme: (theme: 'dark' | 'light') => void;
-  uiTheme?: 'default' | 'ios' | 'minecraft';
-  onSetUiTheme?: (mode: 'default' | 'ios' | 'minecraft') => void;
+  uiTheme?: UIThemeMode;
+  onSetUiTheme?: (mode: UIThemeMode) => void;
   savedJourneys: SavedJourney[];
   onLoadSavedJourney: (journey: SavedJourney) => void;
   onDeleteSavedJourney: (journeyId: string) => void;
@@ -56,6 +57,10 @@ interface OptionsMenuProps {
   isRefreshingData?: boolean;
   openVersionHistoryDirectly?: boolean;
   onCloseVersionHistoryDirectly?: () => void;
+  travelTimeOverrides?: TravelTimeOverridesMap;
+  onResetLineTravelTimes?: (lineId: LineId) => Promise<void>;
+  transitBgAnimationEnabled?: boolean;
+  onToggleTransitBgAnimation?: (enabled: boolean) => void;
 }
 
 export const OptionsMenu: React.FC<OptionsMenuProps> = ({
@@ -63,7 +68,7 @@ export const OptionsMenu: React.FC<OptionsMenuProps> = ({
   onSetLanguage,
   theme,
   onSetTheme,
-  uiTheme = 'ios',
+  uiTheme = 'transit',
   onSetUiTheme,
   savedJourneys,
   onLoadSavedJourney,
@@ -82,6 +87,10 @@ export const OptionsMenu: React.FC<OptionsMenuProps> = ({
   isRefreshingData = false,
   openVersionHistoryDirectly = false,
   onCloseVersionHistoryDirectly,
+  travelTimeOverrides = {},
+  onResetLineTravelTimes,
+  transitBgAnimationEnabled = false,
+  onToggleTransitBgAnimation,
 }) => {
   const t = translations[language];
   const { enabled: hapticsEnabled, setEnabled: setHapticsEnabled, isSupported: hapticsSupported } = useHaptics();
@@ -196,44 +205,79 @@ export const OptionsMenu: React.FC<OptionsMenuProps> = ({
         </div>
       </div>
 
-      {/* UI Design System Setting (Admin Only: Classic, iOS Overhaul, Minecraft Edition) */}
-      {isAdmin && (
-        <div className="p-4 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl space-y-3">
-          <div className="space-y-0.5">
-            <div className="flex items-center gap-2 text-sm font-semibold text-slate-800 dark:text-slate-200">
-              <Smartphone className="w-4 h-4 text-blue-500" />
-              <span>{t.uiDesignSetting}</span>
-              <span className="ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full bg-gradient-to-r from-blue-500 to-indigo-600 text-white shadow-xs">
-                {uiTheme === 'minecraft' ? 'Minecraft' : uiTheme === 'ios' ? 'iOS Overhaul' : 'Classic'}
-              </span>
-            </div>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400">
-              {t.uiDesignDesc}
-            </p>
+      {/* UI Design System Setting (Transit & Classic for everyone; iOS & Minecraft Admin-only) */}
+      <div className="p-4 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl space-y-3">
+        <div className="space-y-0.5">
+          <div className="flex items-center gap-2 text-sm font-semibold text-slate-800 dark:text-slate-200">
+            <Smartphone className="w-4 h-4 text-blue-500" />
+            <span>{t.uiDesignSetting}</span>
+            <span className="ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full bg-gradient-to-r from-blue-500 to-indigo-600 text-white shadow-xs">
+              {uiTheme === 'minecraft'
+                ? 'Minecraft'
+                : uiTheme === 'ios'
+                ? 'iOS Overhaul'
+                : uiTheme === 'transit'
+                ? t.uiDesignTransitBadge
+                : 'Classic'}
+            </span>
           </div>
+          <p className="text-[11px] text-slate-500 dark:text-slate-400">
+            {t.uiDesignDesc}
+          </p>
+        </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
-            {/* Classic MetroFlow UI */}
-            <button
-              onClick={() => {
-                haptic.selection();
-                onSetUiTheme?.('default');
-              }}
-              className={`py-3 px-3.5 rounded-2xl flex items-center justify-between border transition text-xs font-semibold cursor-pointer ${
-                uiTheme === 'default'
-                  ? 'bg-slate-800 dark:bg-slate-700 text-white border-slate-600 shadow-md shadow-slate-900/20 ring-2 ring-slate-400/30'
-                  : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700'
-              }`}
-            >
-              <div className="text-left">
-                <div className="font-bold">{t.uiDesignClassic}</div>
-                <div className="text-[9px] opacity-75">Original Design</div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+          {/* MetroFlow Transit UI (Default App-Icon Architectural Aesthetic) */}
+          <button
+            type="button"
+            onClick={() => {
+              haptic.selection();
+              onSetUiTheme?.('transit');
+            }}
+            className={`py-3 px-3.5 rounded-2xl flex items-center justify-between border transition text-xs font-semibold cursor-pointer ${
+              uiTheme === 'transit'
+                ? 'bg-[#121722] text-white border-[#E03E32]/70 shadow-md shadow-amber-500/15 ring-2 ring-[#F5B31A]/40'
+                : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700'
+            }`}
+          >
+            <div className="text-left">
+              <div className="font-bold flex items-center gap-1.5">
+                <span>{t.uiDesignTransit}</span>
+                <span className="inline-flex items-center gap-0.5 shrink-0" aria-hidden="true">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#E03E32]" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#F5B31A]" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#3A8FE8]" />
+                </span>
               </div>
-              {uiTheme === 'default' && <Check className="w-4 h-4 shrink-0 ml-1 text-emerald-400" />}
-            </button>
+              <div className="text-[9px] opacity-85">{t.uiDesignTransitSub}</div>
+            </div>
+            {uiTheme === 'transit' && <Check className="w-4 h-4 shrink-0 ml-1 text-[#F5B31A]" />}
+          </button>
 
-            {/* iOS Overhaul UI */}
+          {/* Classic MetroFlow UI */}
+          <button
+            type="button"
+            onClick={() => {
+              haptic.selection();
+              onSetUiTheme?.('default');
+            }}
+            className={`py-3 px-3.5 rounded-2xl flex items-center justify-between border transition text-xs font-semibold cursor-pointer ${
+              uiTheme === 'default'
+                ? 'bg-slate-800 dark:bg-slate-700 text-white border-slate-600 shadow-md shadow-slate-900/20 ring-2 ring-slate-400/30'
+                : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700'
+            }`}
+          >
+            <div className="text-left">
+              <div className="font-bold">{t.uiDesignClassic}</div>
+              <div className="text-[9px] opacity-75">Original Design</div>
+            </div>
+            {uiTheme === 'default' && <Check className="w-4 h-4 shrink-0 ml-1 text-emerald-400" />}
+          </button>
+
+          {/* iOS Overhaul UI (Admin Only) */}
+          {isAdmin && (
             <button
+              type="button"
               onClick={() => {
                 haptic.selection();
                 onSetUiTheme?.('ios');
@@ -253,9 +297,12 @@ export const OptionsMenu: React.FC<OptionsMenuProps> = ({
               </div>
               {uiTheme === 'ios' && <Check className="w-4 h-4 shrink-0 ml-1 text-white" />}
             </button>
+          )}
 
-            {/* Minecraft Edition UI */}
+          {/* Minecraft Edition UI (Admin Only) */}
+          {isAdmin && (
             <button
+              type="button"
               onClick={() => {
                 haptic.selection();
                 onSetUiTheme?.('minecraft');
@@ -275,9 +322,44 @@ export const OptionsMenu: React.FC<OptionsMenuProps> = ({
               </div>
               {uiTheme === 'minecraft' && <Check className="w-4 h-4 shrink-0 ml-1 text-emerald-300" />}
             </button>
-          </div>
+          )}
         </div>
-      )}
+
+        {uiTheme === 'transit' && onToggleTransitBgAnimation && (
+          <div className="pt-3 mt-1 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between gap-3">
+            <div className="min-w-0 space-y-0.5">
+              <div className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                {t.transitBgAnimation}
+              </div>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
+                {t.transitBgAnimationDesc}
+              </p>
+            </div>
+
+            <button
+              type="button"
+              role="switch"
+              aria-checked={Boolean(transitBgAnimationEnabled)}
+              aria-label={t.transitBgAnimation}
+              onClick={() => {
+                haptic.selection();
+                onToggleTransitBgAnimation(!transitBgAnimationEnabled);
+              }}
+              className={`w-12 h-7 rounded-full transition-colors duration-200 relative z-10 p-1 flex items-center cursor-pointer focus:outline-none shrink-0 touch-manipulation select-none ${
+                transitBgAnimationEnabled ? 'bg-blue-600' : 'bg-slate-300 dark:bg-slate-700'
+              }`}
+            >
+              <span
+                aria-hidden="true"
+                style={{
+                  transform: transitBgAnimationEnabled ? 'translateX(20px)' : 'translateX(0px)',
+                }}
+                className="pointer-events-none block w-5 h-5 rounded-full bg-white shadow-md transition-transform duration-200 ease-out"
+              />
+            </button>
+          </div>
+        )}
+      </div>
 
       {/* Theme Setting (Light / Dark Mode) */}
       <div className="p-4 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl space-y-3">
@@ -779,6 +861,14 @@ export const OptionsMenu: React.FC<OptionsMenuProps> = ({
               <Lock className="w-3.5 h-3.5 text-slate-400" />
               <span>{t.exitAdmin}</span>
             </button>
+
+            {onResetLineTravelTimes && (
+              <AdminTravelTimesPanel
+                language={language}
+                travelTimeOverrides={travelTimeOverrides}
+                onResetLineTravelTimes={onResetLineTravelTimes}
+              />
+            )}
           </div>
         ) : (
           <form onSubmit={handleVerifyAdmin} className="space-y-2.5 pt-1">

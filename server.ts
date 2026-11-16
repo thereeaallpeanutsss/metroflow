@@ -8,9 +8,38 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const portArgIndex = process.argv.indexOf('--port');
-const rawPort = (portArgIndex !== -1 ? process.argv[portArgIndex + 1] : undefined) || process.env.PORT || '3000';
-const PORT = Number(rawPort) || 3000;
+function resolvePort(): number {
+  const argv = process.argv.slice(2);
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg.startsWith('--port=')) {
+      const val = Number(arg.slice('--port='.length));
+      if (Number.isFinite(val) && val > 0) return val;
+    } else if ((arg === '--port' || arg === '-p') && argv[i + 1]) {
+      const val = Number(argv[i + 1]);
+      if (Number.isFinite(val) && val > 0) return val;
+    }
+  }
+
+  const isProd = process.env.NODE_ENV === 'production';
+  if (!isProd) {
+    const devDefault = Number(process.env.DEFAULT_APP_PORT);
+    if (Number.isFinite(devDefault) && devDefault > 0) {
+      return devDefault;
+    }
+    const envPort = Number(process.env.PORT);
+    const nginxPort = Number(process.env.NGINX_PORT);
+    if (Number.isFinite(envPort) && envPort > 0 && envPort !== nginxPort) {
+      return envPort;
+    }
+    return 3000;
+  }
+
+  const prodPort = Number(process.env.PORT);
+  return Number.isFinite(prodPort) && prodPort > 0 ? prodPort : 3000;
+}
+
+const PORT = resolvePort();
 
 // Enable CORS for cross-device synchronization and GitHub Pages hosting
 app.use((req, res, next) => {
@@ -456,6 +485,34 @@ app.post('/api/travel-times', (req, res) => {
   });
 });
 
+// 12. Reset / delete measured travel time overrides for a single line (admin only)
+app.delete('/api/travel-times/line/:lineId', (req, res) => {
+  const { lineId } = req.params;
+  const adminCode = req.headers['x-admin-code'] || req.query.adminCode || req.body?.adminCode;
+
+  if (adminCode !== 'abc123') {
+    res.status(403).json({ success: false, error: 'Unauthorized: Invalid admin code' });
+    return;
+  }
+
+  travelTimesCache = loadTravelTimes();
+  let removedCount = 0;
+  for (const [key, value] of Object.entries(travelTimesCache)) {
+    if (value && value.lineId === lineId) {
+      delete travelTimesCache[key];
+      removedCount += 1;
+    }
+  }
+  saveTravelTimes(travelTimesCache);
+
+  res.json({
+    success: true,
+    removedCount,
+    travelTimes: Object.values(travelTimesCache),
+    travelTimesMap: travelTimesCache,
+  });
+});
+
 // Start server with Vite middleware in dev or static files in production
 async function startServer() {
   const isProduction = process.env.NODE_ENV === 'production';
@@ -477,7 +534,9 @@ async function startServer() {
       return createServer({
         server: {
           middlewareMode: true,
-          hmr: disableHmr ? false : { server },
+          allowedHosts: true,
+          hmr: !disableHmr,
+          ws: disableHmr ? false : { server },
           watch: disableHmr ? null : {},
         },
         appType: 'spa',

@@ -233,3 +233,6 @@ export interface ActiveRideState {
   showComparisonModal: boolean;
 }
 
+export type UIThemeMode = 'default' | 'ios' | 'minecraft' | 'transit';
+
+

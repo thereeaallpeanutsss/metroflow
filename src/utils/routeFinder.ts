@@ -127,19 +127,28 @@ export interface LineSegmentTiming {
   toStationId: string;
   durationSeconds: number;
   durationMinutes: number;
+  defaultDurationSeconds: number;
+  defaultDurationMinutes: number;
   isMeasured: boolean;
+  updatedAt?: number;
 }
 
 export interface LineTravelSummary {
   totalSeconds: number;
   totalMinutes: number;
+  defaultTotalSeconds: number;
+  defaultTotalMinutes: number;
   hasMeasuredSegments: boolean;
+  measuredSegmentsCount: number;
+  totalSegmentsCount: number;
+  lastUpdatedAt: number | null;
   segments: LineSegmentTiming[];
 }
 
 /**
  * Computes the complete dynamic end-to-end travel time and per-segment durations
- * for any line, immediately reflecting admin-measured TravelTimeOverridesMap updates.
+ * for any line, immediately reflecting admin-measured TravelTimeOverridesMap updates
+ * alongside default baseline durations and last-timed timestamps.
  */
 export function getLineTotalTravelTime(
   lineId: LineId,
@@ -151,38 +160,66 @@ export function getLineTotalTravelTime(
     return {
       totalSeconds: 0,
       totalMinutes: 0,
+      defaultTotalSeconds: 0,
+      defaultTotalMinutes: 0,
       hasMeasuredSegments: false,
+      measuredSegmentsCount: 0,
+      totalSegmentsCount: 0,
+      lastUpdatedAt: null,
       segments: [],
     };
   }
 
   let totalSeconds = 0;
+  let defaultTotalSeconds = 0;
   let hasMeasuredSegments = false;
+  let measuredSegmentsCount = 0;
+  let lastUpdatedAt: number | null = null;
   const segments: LineSegmentTiming[] = [];
 
   for (let i = 0; i < line.stations.length - 1; i++) {
     const fromStationId = line.stations[i];
     const toStationId = line.stations[i + 1];
     const key = getSegmentTimeKey(lineId, fromStationId, toStationId);
-    const isMeasured = Boolean(map[key]);
-    if (isMeasured) hasMeasuredSegments = true;
+    const override = map[key];
+    const isMeasured = Boolean(override);
+    if (isMeasured) {
+      hasMeasuredSegments = true;
+      measuredSegmentsCount += 1;
+      if (typeof override.updatedAt === 'number' && (lastUpdatedAt === null || override.updatedAt > lastUpdatedAt)) {
+        lastUpdatedAt = override.updatedAt;
+      }
+    }
+
+    const defaultMinRaw = defaultSegmentDurationMap.get(key) ?? 2;
+    const defaultDurationSeconds = Math.max(1, Math.round(defaultMinRaw * 60));
+    const defaultDurationMinutes = roundMinutes(defaultMinRaw);
 
     const durationSeconds = getEffectiveSegmentSeconds(lineId, fromStationId, toStationId, map);
     const durationMinutes = getEffectiveSegmentDuration(lineId, fromStationId, toStationId, map);
     totalSeconds += durationSeconds;
+    defaultTotalSeconds += defaultDurationSeconds;
     segments.push({
       fromStationId,
       toStationId,
       durationSeconds,
       durationMinutes,
+      defaultDurationSeconds,
+      defaultDurationMinutes,
       isMeasured,
+      updatedAt: override?.updatedAt,
     });
   }
 
   return {
     totalSeconds,
     totalMinutes: totalSeconds > 0 ? Math.max(0.1, roundMinutes(totalSeconds / 60)) : 0,
+    defaultTotalSeconds,
+    defaultTotalMinutes: defaultTotalSeconds > 0 ? Math.max(0.1, roundMinutes(defaultTotalSeconds / 60)) : 0,
     hasMeasuredSegments,
+    measuredSegmentsCount,
+    totalSegmentsCount: segments.length,
+    lastUpdatedAt,
     segments,
   };
 }

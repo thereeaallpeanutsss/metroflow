@@ -522,3 +522,131 @@
   box-shadow: 1px 1px 0 rgba(255,255,255,0.4) !important;
 }
 
+/* ==========================================================================
+   METROFLOW TRANSIT UI THEME (APP-ICON ARCHITECTURAL SUBWAY SYSTEM)
+   Strict 1-to-1 Classic UI layout with elevated architectural card surfaces,
+   48px subway grid canvas, and hairline transit detailing (Light & Dark).
+   ========================================================================== */
+
+/* Dark Mode Architectural Subway Grid Canvas */
+.theme-transit.dark {
+  --transit-node-bg: #0f141e;
+  background-color: #0d111a;
+  background-image:
+    linear-gradient(to right, rgba(148, 163, 184, 0.055) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(148, 163, 184, 0.055) 1px, transparent 1px);
+  background-size: 48px 48px;
+  color: #f1f5f9;
+}
+
+/* Light Mode Architectural Paper Grid Canvas */
+.theme-transit:not(.dark) {
+  --transit-node-bg: #ffffff;
+  background-color: #f4f6fa;
+  background-image:
+    linear-gradient(to right, rgba(15, 23, 42, 0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(15, 23, 42, 0.05) 1px, transparent 1px);
+  background-size: 48px 48px;
+  color: #0f172a;
+}
+
+/* When animated parallax background is active, the SVG renders the 48px grid directly on its GPU layer */
+.theme-transit.transit-bg-animated {
+  background-image: none;
+}
+
+/* Refined Card Surfaces across TripPlanner, LineDirectory, OptionsMenu & Modals */
+.theme-transit.dark .rounded-3xl.bg-slate-900:not(.transit-custom-surface),
+.theme-transit.dark .rounded-3xl.dark\:bg-slate-900:not(.transit-custom-surface) {
+  background-color: #141923;
+  border-color: rgba(148, 163, 184, 0.16);
+  box-shadow: 0 12px 32px -10px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.theme-transit:not(.dark) .rounded-3xl.bg-white:not(.transit-custom-surface) {
+  background-color: #ffffff;
+  border-color: rgba(15, 23, 42, 0.08);
+  box-shadow: 0 8px 28px -6px rgba(15, 23, 42, 0.08), 0 2px 6px -2px rgba(15, 23, 42, 0.04);
+}
+
+/* Nested subcards & inner containers inside Transit cards */
+.theme-transit.dark .rounded-2xl.dark\:bg-slate-800\/70:not(.transit-custom-surface),
+.theme-transit.dark .rounded-2xl.dark\:bg-slate-800\/60:not(.transit-custom-surface),
+.theme-transit.dark .rounded-2xl.dark\:bg-slate-800\/40:not(.transit-custom-surface),
+.theme-transit.dark .rounded-2xl.dark\:bg-slate-950\/30:not(.transit-custom-surface) {
+  background-color: #181f2e;
+  border-color: rgba(148, 163, 184, 0.14);
+}
+
+.theme-transit:not(.dark) .rounded-2xl.bg-slate-50:not(.transit-custom-surface),
+.theme-transit:not(.dark) .rounded-2xl.bg-slate-50\/50:not(.transit-custom-surface),
+.theme-transit:not(.dark) .rounded-2xl.bg-slate-100\/80:not(.transit-custom-surface) {
+  background-color: #f6f8fb;
+  border-color: rgba(15, 23, 42, 0.08);
+}
+
+/* Subtle architectural input fields */
+.theme-transit.dark input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+.theme-transit.dark select,
+.theme-transit.dark textarea {
+  background-color: #0f141e;
+  border-color: rgba(148, 163, 184, 0.18);
+}
+
+.theme-transit:not(.dark) input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+.theme-transit:not(.dark) select,
+.theme-transit:not(.dark) textarea {
+  background-color: #f8fafc;
+  border-color: rgba(15, 23, 42, 0.12);
+}
+
+/* Header & TabBar architectural crispness */
+.theme-transit.dark header {
+  background-color: rgba(13, 18, 28, 0.9);
+  border-bottom-color: rgba(148, 163, 184, 0.14);
+}
+
+.theme-transit:not(.dark) header {
+  background-color: rgba(255, 255, 255, 0.92);
+  border-bottom-color: rgba(15, 23, 42, 0.08);
+}
+
+.theme-transit.dark nav .dock-glass-lens {
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
+.theme-transit:not(.dark) nav .dock-glass-lens {
+  border-color: rgba(15, 23, 42, 0.1);
+}
+
+/* Full-line CSS offset-path train animations (trains follow entire lines & bends continuously) */
+@keyframes transitTrainAlongPath {
+  from {
+    offset-distance: 0%;
+  }
+  to {
+    offset-distance: 100%;
+  }
+}
+
+.transit-path-train {
+  position: absolute;
+  top: 0;
+  left: 0;
+  offset-rotate: auto;
+  offset-anchor: center;
+  animation-name: transitTrainAlongPath;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+  will-change: transform, offset-distance;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .transit-path-train {
+    animation: none !important;
+    opacity: 0 !important;
+  }
+}
+
+
+

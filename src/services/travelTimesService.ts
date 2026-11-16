@@ -1,6 +1,7 @@
 import { LineId, SegmentTravelTime, TravelTimeOverridesMap } from '../types/metro';
+import { METRO_LINES } from '../data/metroData';
 import { getApiBaseUrl } from './apiConfig';
-import { collection, doc, getDocs, setDoc, onSnapshot } from 'firebase/firestore';
+import { collection, doc, getDocs, setDoc, deleteDoc, query, where, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
 
 const STORAGE_KEY = 'metroflow_cached_travel_times';
@@ -157,9 +158,11 @@ export async function fetchTravelTimes(): Promise<TravelTimeOverridesMap> {
         firestoreMap[data.id] = data;
       }
     });
-    const merged = mergeTravelTimeMaps(local, firestoreMap);
-    setLocalCachedTravelTimes(merged);
-    return merged;
+    const nextMap = snap.metadata.fromCache
+      ? mergeTravelTimeMaps(local, firestoreMap)
+      : firestoreMap;
+    setLocalCachedTravelTimes(nextMap);
+    return nextMap;
   } catch (err) {
     if (isPermissionError(err)) {
       handleFirestoreError(err, OperationType.GET, COLLECTION_PATH);
@@ -203,9 +206,20 @@ export function subscribeToTravelTimes(
             firestoreMap[data.id] = data;
           }
         });
-        const merged = mergeTravelTimeMaps(getLocalCachedTravelTimes(), firestoreMap);
-        setLocalCachedTravelTimes(merged);
-        callback(merged);
+        let nextMap: TravelTimeOverridesMap;
+        if (!snap.metadata.fromCache) {
+          nextMap = firestoreMap;
+        } else {
+          const localCopy = { ...getLocalCachedTravelTimes() };
+          snap.docChanges().forEach((change) => {
+            if (change.type === 'removed') {
+              delete localCopy[change.doc.id];
+            }
+          });
+          nextMap = mergeTravelTimeMaps(localCopy, firestoreMap);
+        }
+        setLocalCachedTravelTimes(nextMap);
+        callback(nextMap);
       },
       (err) => {
         if (isPermissionError(err)) {
@@ -276,6 +290,75 @@ export async function saveLineTravelTimes(
   const nextMap: TravelTimeOverridesMap = { ...current };
   for (const seg of sanitizedSegments) {
     nextMap[seg.id] = seg;
+  }
+  setLocalCachedTravelTimes(nextMap);
+  return nextMap;
+}
+
+/**
+ * Resets all admin-measured segment travel times for a single line back to defaults
+ * across Firestore, REST API, and localStorage cache.
+ */
+export async function resetLineTravelTimes(
+  lineId: LineId,
+  adminCode: string
+): Promise<TravelTimeOverridesMap> {
+  const current = getLocalCachedTravelTimes();
+  const docIdsToDelete = new Set<string>();
+
+  for (const [key, item] of Object.entries(current)) {
+    if (item && item.lineId === lineId) {
+      docIdsToDelete.add(key);
+    }
+  }
+
+  const line = METRO_LINES[lineId];
+  if (line && line.stations.length >= 2) {
+    for (let i = 0; i < line.stations.length - 1; i++) {
+      docIdsToDelete.add(getSegmentTimeKey(lineId, line.stations[i], line.stations[i + 1]));
+    }
+  }
+
+  // 1. Delete from Firestore (including querying matching lineId docs directly)
+  try {
+    const q = query(collection(db, COLLECTION_PATH), where('lineId', '==', lineId));
+    const snap = await getDocs(q);
+    snap.docs.forEach((d) => docIdsToDelete.add(d.id));
+
+    await Promise.all(
+      Array.from(docIdsToDelete).map((segId) => deleteDoc(doc(db, COLLECTION_PATH, segId)))
+    );
+  } catch (err) {
+    if (isPermissionError(err)) {
+      handleFirestoreError(err, OperationType.DELETE, COLLECTION_PATH);
+    }
+    console.warn('Firestore delete for line travelTimes failed, trying REST API:', err);
+  }
+
+  // 2. Delete from Express REST API backup
+  try {
+    const apiBase = getApiBaseUrl();
+    await fetch(`${apiBase}/api/travel-times/line/${encodeURIComponent(lineId)}`, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-admin-code': adminCode,
+      },
+      body: JSON.stringify({ adminCode }),
+    });
+  } catch (err) {
+    console.warn('REST API delete for line travel times failed:', err);
+  }
+
+  // 3. Remove from local cache immediately
+  const nextMap: TravelTimeOverridesMap = { ...current };
+  for (const segId of docIdsToDelete) {
+    delete nextMap[segId];
+  }
+  for (const [key, item] of Object.entries(nextMap)) {
+    if (item && item.lineId === lineId) {
+      delete nextMap[key];
+    }
   }
   setLocalCachedTravelTimes(nextMap);
   return nextMap;
